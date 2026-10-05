@@ -4,6 +4,7 @@ const { mapCampanha, mapCliente, mapVoucher, mapCampanhaIndicacao } = require(".
 const {
   last4, novoCodigoVoucher, montarMensagemRetorno, montarLinkWhatsapp,
   telefoneWa, montarMensagemEncaminhar, montarLinkWhatsappGenerico,
+  novoCodigoIndicacao, montarMensagemAgendarIndicado,
 } = require("../mensagens");
 
 const router = express.Router();
@@ -115,11 +116,21 @@ router.post("/resgate/:token/confirmar", async (req, res) => {
 });
 
 // ---------------------------------------------------------------------
-// Programa de Indicações — link público (o mesmo link serve tanto para o
-// indicador ver as condições e encaminhar, quanto para o amigo indicado
-// confirmar a indicação; por isso não muda de "status" quando visualizado
-// além de enviado → visualizado, e pode ser confirmado várias vezes por
-// pessoas diferentes).
+// Programa de Indicações — link público em DOIS estágios sobre o MESMO
+// token:
+//   Estágio A (indicador_confirmado_em ainda NULL): quem abre o link é o
+//   próprio indicador — vê as condições dele e confirma participação
+//   digitando os últimos 4 números do WhatsApP dele (mesmo padrão de
+//   /resgate/:token/confirmar acima). Ao confirmar, marcamos
+//   indicador_confirmado_em e devolvemos o link de encaminhar para amigos.
+//   Estágio B (indicador_confirmado_em já setado): o MESMO link, quando
+//   reaberto por qualquer pessoa (os amigos para quem o indicador
+//   encaminhou), passa a mostrar "Você foi indicado por Fulano e ganhou X" e
+//   o formulário de nome + WhatsApp completo (não há nada para conferir
+//   ainda, a pessoa é nova no sistema) — é o POST .../confirmar já existente.
+// Por isso o link não muda de "status" quando visualizado além de
+// enviado → visualizado, e o estágio B pode ser confirmado várias vezes por
+// pessoas diferentes.
 // ---------------------------------------------------------------------
 async function carregarContextoIndicacao(token) {
   const indicacaoRes = await db.query("SELECT * FROM indicacoes WHERE token = $1", [token]);
@@ -155,8 +166,18 @@ router.get("/indicacao/:token", async (req, res) => {
   }
 
   const baseUrl = process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get("host")}`;
-  const linkIndicacao = `${baseUrl}/#/indicacao/${indicacaoRow.token}`;
-  const mensagemEncaminhar = montarMensagemEncaminhar({ campanha, clienteIndicador, linkIndicacao });
+  // IMPORTANTE: este é o link que o indicador ENCAMINHA para os amigos —
+  // tem o sufixo /amigo pra ficar visualmente diferente do link original que
+  // ele recebeu (esse aqui: cf. montarMensagemIndicacao em enviarIndicacao.js,
+  // que NUNCA leva esse sufixo). Os dois abrem o mesmo token no front, mas o
+  // front usa esse sufixo (rotaAtual().params[1]) pra decidir se quem abriu é
+  // o próprio indicador reabrindo o link dele (mostra status) ou um amigo
+  // reabrindo o link encaminhado (mostra o formulário de confirmação do
+  // amigo) — sem o sufixo, os dois casos eram indistinguíveis e o indicador
+  // que reabrisse o PRÓPRIO link, depois de confirmar, caía errado na tela
+  // "Você foi indicado por você mesmo".
+  const linkParaAmigo = `${baseUrl}/#/indicacao/${indicacaoRow.token}/amigo`;
+  const mensagemEncaminhar = montarMensagemEncaminhar({ campanha, clienteIndicador, linkIndicacao: linkParaAmigo });
   const linkEncaminhar = montarLinkWhatsappGenerico(mensagemEncaminhar);
 
   const confirmadosRes = await db.query("SELECT COUNT(*)::int AS total FROM indicados WHERE indicacao_id = $1", [
@@ -167,12 +188,75 @@ router.get("/indicacao/:token", async (req, res) => {
     campanha,
     clienteIndicador,
     totalConfirmados: confirmadosRes.rows[0].total,
+    // Estágio A (false) → o link ainda mostra as condições do indicador +
+    // confirmação por últimos 4 dígitos. Estágio B (true) → o link mostra o
+    // formulário do amigo indicado ("Você foi indicado por... e ganhou...")
+    // QUANDO aberto via o link com sufixo /amigo (ver comentário acima); o
+    // front decide isso sozinho, este flag só diz se o indicador já confirmou.
+    indicadorConfirmado: !!indicacaoRow.indicador_confirmado_em,
+    linkIndicacao: linkParaAmigo,
     mensagemEncaminhar,
     linkEncaminhar,
     empresa: empresaPublica(ctx.empresa),
   });
 });
 
+// Estágio A: o próprio indicador confirma participação digitando os últimos
+// 4 dígitos do WhatsApp dele (mesmo padrão de /resgate/:token/confirmar).
+// Idempotente: se já estava confirmado, não faz update de novo mas devolve a
+// mesma resposta de sucesso (recarregar a página não deve dar erro).
+router.post("/indicacao/:token/confirmar-indicador", async (req, res) => {
+  const ultimos4Informados = String(req.body?.ultimos4 || "").replace(/\D/g, "");
+  const ctx = await carregarContextoIndicacao(req.params.token);
+  if (!ctx) return res.status(404).json({ erro: "Link de indicação inválido." });
+  const { indicacaoRow, campanha, clienteIndicador } = ctx;
+
+  if (indicacaoRow.status === "cancelado") {
+    return res.status(409).json({ erro: "Este programa de indicação foi cancelado." });
+  }
+  if (campanha.status === "encerrada") {
+    return res.status(409).json({ erro: "Esta campanha de indicação já foi encerrada." });
+  }
+  if (ultimos4Informados.length !== 4) {
+    return res.status(400).json({ erro: "Digite os 4 últimos números do seu WhatsApp." });
+  }
+  if (ultimos4Informados !== last4(clienteIndicador.telefone)) {
+    return res.status(400).json({ erro: "Esses números não conferem com o WhatsApp cadastrado. Tente novamente." });
+  }
+
+  if (!indicacaoRow.indicador_confirmado_em) {
+    // Gera aqui o código curto de identificação DESTE indicador (usado na
+    // tela "Resgate Indicações" do painel) — só na primeira confirmação,
+    // pra não trocar o código em confirmações repetidas (idempotência, ver
+    // comentário da função acima).
+    await db.query(
+      "UPDATE indicacoes SET indicador_confirmado_em = now(), codigo = $2 WHERE id = $1",
+      [indicacaoRow.id, novoCodigoIndicacao()]
+    );
+  }
+
+  const baseUrl = process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get("host")}`;
+  // Mesmo link com sufixo /amigo do GET acima — ver o comentário lá pra
+  // contexto completo de por que não é o link puro.
+  const linkParaAmigo = `${baseUrl}/#/indicacao/${indicacaoRow.token}/amigo`;
+  const mensagemEncaminhar = montarMensagemEncaminhar({ campanha, clienteIndicador, linkIndicacao: linkParaAmigo });
+  const linkEncaminhar = montarLinkWhatsappGenerico(mensagemEncaminhar);
+
+  res.json({
+    confirmado: true,
+    campanha,
+    clienteIndicador,
+    linkIndicacao: linkParaAmigo,
+    mensagemEncaminhar,
+    linkEncaminhar,
+    premioIndicado: campanha.premioIndicado,
+  });
+});
+
+// Estágio B: o amigo indicado (achou o link já encaminhado pelo indicador)
+// confirma nome completo + WhatsApp completo — não há nada cadastrado ainda
+// para conferir por últimos 4 dígitos, por isso o formulário completo.
+// Só é aceito depois que o próprio indicador completou o estágio A acima.
 router.post("/indicacao/:token/confirmar", async (req, res) => {
   const nome = String(req.body?.nome || "").trim();
   const telefone = String(req.body?.telefone || "").trim();
@@ -185,6 +269,9 @@ router.post("/indicacao/:token/confirmar", async (req, res) => {
   }
   if (campanha.status === "encerrada") {
     return res.status(409).json({ erro: "Esta campanha de indicação já foi encerrada." });
+  }
+  if (!indicacaoRow.indicador_confirmado_em) {
+    return res.status(409).json({ erro: "Aguardando a confirmação do indicador — tente abrir o link novamente em instantes." });
   }
   if (!nome || telefoneWa(telefone).length < 8) {
     return res.status(400).json({ erro: "Informe seu nome completo e um WhatsApp válido." });
@@ -202,6 +289,7 @@ router.post("/indicacao/:token/confirmar", async (req, res) => {
     return res.status(409).json({ erro: "Este WhatsApp já confirmou esta indicação anteriormente." });
   }
 
+  const codigo = novoCodigoIndicacao();
   const client = await db.pool.connect();
   try {
     await client.query("BEGIN");
@@ -221,12 +309,21 @@ router.post("/indicacao/:token/confirmar", async (req, res) => {
       clienteId = novoClienteRes.rows[0].id;
     }
     await client.query(
-      `INSERT INTO indicados (empresa_id, indicacao_id, cliente_id, nome, telefone_whatsapp)
-       VALUES ($1,$2,$3,$4,$5)`,
-      [indicacaoRow.empresa_id, indicacaoRow.id, clienteId, nome, telefone]
+      `INSERT INTO indicados (empresa_id, indicacao_id, cliente_id, nome, telefone_whatsapp, codigo)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      [indicacaoRow.empresa_id, indicacaoRow.id, clienteId, nome, telefone, codigo]
     );
     await client.query("COMMIT");
-    res.status(201).json({ confirmado: true, nome, premioIndicado: campanha.premioIndicado, campanha });
+    // Link de "Agendar agora" pro WhatsApp do estabelecimento, já com a
+    // mensagem preenchida (mesmo padrão do linkRetorno do Giftback acima) —
+    // só existe quando a empresa tem WhatsApp de contato cadastrado.
+    const empresaWhatsapp = ctx.empresa.whatsapp_numero;
+    let linkAgendar = null;
+    if (empresaWhatsapp) {
+      const mensagemAgendar = montarMensagemAgendarIndicado({ premioIndicado: campanha.premioIndicado, codigo });
+      linkAgendar = montarLinkWhatsapp(empresaWhatsapp, mensagemAgendar);
+    }
+    res.status(201).json({ confirmado: true, nome, premioIndicado: campanha.premioIndicado, campanha, codigoVoucher: codigo, linkAgendar });
   } catch (err) {
     await client.query("ROLLBACK");
     console.error(err);

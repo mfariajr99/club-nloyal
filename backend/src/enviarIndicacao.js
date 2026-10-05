@@ -1,6 +1,21 @@
 const db = require("./db");
 const { mapCampanhaIndicacao, mapCliente, mapIndicacao } = require("./mappers");
 const { montarMensagemIndicacao, montarLinkWhatsapp, novoToken } = require("./mensagens");
+const wame = require("./wame/wameService");
+
+// Se a empresa conectou o WhatsApp pela WAME, manda o convite sozinho pelo
+// número dela. Devolve null quando não há WAME configurada (a tela segue com
+// o link wa.me de sempre). Nunca lança erro: o convite já está registrado.
+async function enviarPelaWame({ empresaId, cliente, mensagem, indicacaoId }) {
+  try {
+    return await wame.enviarTexto({
+      empresaId, telefone: cliente.telefone, texto: mensagem, origem: "indicacao", indicacaoId,
+    });
+  } catch (err) {
+    console.error("[wame] erro inesperado no envio automático da indicação:", err.message);
+    return { enviado: false, erro: "Não foi possível enviar automaticamente pelo WhatsApp." };
+  }
+}
 
 // Disparo do convite de indicação — usado quando a atendente clica no ícone
 // de WhatsApp de um cliente dentro de uma campanha de indicação. Gera um
@@ -29,7 +44,8 @@ async function enviarIndicacao({ empresaId, clienteId, campanhaId, baseUrl }) {
   );
   if (existenteRes.rows[0]) {
     const row = existenteRes.rows[0];
-    return { indicacao: mapIndicacao(row), mensagem: row.mensagem, link: row.link_whatsapp };
+    const envioAutomatico = await enviarPelaWame({ empresaId, cliente, mensagem: row.mensagem, indicacaoId: row.id });
+    return { indicacao: mapIndicacao(row), mensagem: row.mensagem, link: row.link_whatsapp, envioAutomatico };
   }
 
   const tok = novoToken();
@@ -43,7 +59,8 @@ async function enviarIndicacao({ empresaId, clienteId, campanhaId, baseUrl }) {
      RETURNING *`,
     [empresaId, campanhaId, clienteId, tok, linkWhatsapp, mensagem]
   );
-  return { indicacao: mapIndicacao(insertRes.rows[0]), mensagem, link: linkWhatsapp };
+  const envioAutomatico = await enviarPelaWame({ empresaId, cliente, mensagem, indicacaoId: insertRes.rows[0].id });
+  return { indicacao: mapIndicacao(insertRes.rows[0]), mensagem, link: linkWhatsapp, envioAutomatico };
 }
 
 module.exports = { enviarIndicacao };

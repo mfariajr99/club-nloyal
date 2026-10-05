@@ -71,6 +71,7 @@ function mapEmpresa(r) {
     corPrincipal: r.cor_principal,
     logoUrl: r.logo_url,
     instagram: r.instagram,
+    status: r.status || "ativa",
   };
 }
 function mapCampanhaIndicacao(r) {
@@ -98,6 +99,8 @@ function mapIndicacao(r) {
     status: r.status,
     dataEnvio: r.data_envio,
     dataVisualizacao: r.data_visualizacao,
+    indicadorConfirmadoEm: r.indicador_confirmado_em,
+    codigo: r.codigo || null,
   };
 }
 function mapIndicado(r) {
@@ -107,6 +110,7 @@ function mapIndicado(r) {
     clienteId: r.cliente_id,
     nome: r.nome,
     telefone: r.telefone_whatsapp,
+    codigo: r.codigo || null,
     dataConfirmacao: r.data_confirmacao,
   };
 }

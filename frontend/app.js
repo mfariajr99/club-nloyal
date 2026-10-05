@@ -5,6 +5,9 @@
   // duplicar o base64 do logo aqui) para exibir também nas páginas públicas.
   var LOGO_SRC = (document.querySelector(".brand-logo")||{}).src || "";
   var LOGO_TAG = LOGO_SRC ? '<img class="redeem-logo" src="'+LOGO_SRC+'" alt="Club’n Loyal">' : "";
+  // Logo em branco — usada só na tela de login (fundo sempre escuro ali).
+  // O estilo inline tem mais prioridade que o filtro definido em .redeem-logo.
+  var LOGO_TAG_LOGIN = LOGO_SRC ? '<img class="redeem-logo" style="filter:brightness(0) invert(1);" src="'+LOGO_SRC+'" alt="Club’n Loyal">' : "";
 
   // ---------------------------------------------------------------------
   // Ícones (SVG inline, sem dependências)
@@ -36,6 +39,11 @@
     verificado: '<svg width="15" height="15" viewBox="0 0 24 24" fill="#2b6fb0" stroke="#2b6fb0" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/><path d="m9 12 2 2 4-4" stroke="#fff" stroke-width="2" fill="none"/></svg>',
     instagram: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#c0396b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="2.5" width="19" height="19" rx="5.5"/><circle cx="12" cy="12" r="4.2"/><circle cx="17.6" cy="6.4" r="0.6" fill="#c0396b" stroke="none"/></svg>',
     relogio: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>',
+    // Ícones da tela Configurações → Conexão WhatsApp.
+    sync: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 1-15.3 6.4L3 16"/><path d="M3 12a9 9 0 0 1 15.3-6.4L21 8"/><path d="M3 21v-5h5"/><path d="M21 3v5h-5"/></svg>',
+    alerta: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+    plugue: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 9.5 14.5 2l-2.12 2.12 1.06 1.06-3.54 3.54-1.06-1.06L6.72 9.78l1.06 1.06L4.24 14.38a3 3 0 0 0 0 4.24l.71.71 6-6 .71.71-6 6 .71.71a3 3 0 0 0 4.24 0l3.54-3.54 1.06 1.06 2.12-2.12-1.06-1.06 3.54-3.54 1.06 1.06L22 9.5Z"/></svg>',
+    x: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
   };
 
   // NAV mistura itens diretos (com "id") e categorias com sub-itens (com
@@ -65,6 +73,11 @@
     { group: "Configurações", icon: "config", items: [
       { id: "config-empresa", label: "Dados da empresa", icon: "empresa" },
       { id: "config-aparencia", label: "Aparência", icon: "aparencia" },
+      // "Conexão WhatsApp" agora abre a integração pela WAME (config-wame).
+      // A tela da integração oficial da Meta (config-whatsapp) continua no
+      // código e acessível pelo endereço #/config-whatsapp, mas saiu do menu
+      // enquanto a Meta não libera o app para conectar clientes.
+      { id: "config-wame", label: "Conexão WhatsApp", icon: "whatsapp" },
     ] },
   ];
 
@@ -313,10 +326,24 @@
     try { data = await resp.json(); } catch(e){ data = null; }
     if (resp.status === 401){
       localStorage.removeItem("gb_token");
+      localStorage.removeItem("gb_role");
       state.ready = false;
       renderLogin("Sua sessão expirou. Faça login novamente.");
       const err = new Error("Não autenticado");
       err.status = 401;
+      throw err;
+    }
+    // Conta bloqueada/desativada pelo Painel Master enquanto a empresa já
+    // estava logada: requireAuth passa a recusar toda rota autenticada com
+    // 403 — derruba a sessão na hora, igual ao 401 acima (o próprio Master
+    // nunca recebe este 403, só o login de uma empresa normal).
+    if (resp.status === 403 && localStorage.getItem("gb_role") !== "master"){
+      localStorage.removeItem("gb_token");
+      localStorage.removeItem("gb_role");
+      state.ready = false;
+      renderLogin((data && data.erro) || "Acesso não autorizado.");
+      const err = new Error((data && data.erro) || "Acesso não autorizado.");
+      err.status = 403;
       throw err;
     }
     if (!resp.ok){
@@ -342,6 +369,7 @@
     try { data = await resp.json(); } catch(e){ data = null; }
     if (resp.status === 401){
       localStorage.removeItem("gb_token");
+      localStorage.removeItem("gb_role");
       state.ready = false;
       renderLogin("Sua sessão expirou. Faça login novamente.");
       const err = new Error("Não autenticado");
@@ -381,6 +409,11 @@
     vouchers.forEach(v => { state.vouchers[v.id] = v; }); // v.id == envioId (ver mapVoucher no backend)
     state.config = { empresa };
     state.campanhasIndicacao = porId(campanhasIndicacao);
+    // Status da integração WAME — decide se os botões de envio mandam a
+    // mensagem sozinhos pelo servidor ou abrem o link wa.me. Fica fora do
+    // Promise.all de propósito: se esta consulta falhar, o resto do painel
+    // carrega normalmente (só volta ao envio manual).
+    state.wame = await api("/config/wame").catch(() => null);
     state.ready = true;
   }
 
@@ -393,7 +426,16 @@
     return { nome: partes[0] || "dashboard", params: partes.slice(1) };
   }
   window.addEventListener("hashchange", render);
-  function ir(rota){ location.hash = "#/" + rota; }
+  // Navegar pra rota em que já se está não dispara "hashchange" (o hash não
+  // muda), então o painel ficava com dado velho — ex.: sair de "Resgate
+  // Indicações", um amigo confirmar em outra aba, e voltar clicando de novo
+  // no mesmo item do menu não atualizava nada. Força o re-render manualmente
+  // nesse caso, pra sempre refletir o estado mais recente do servidor.
+  function ir(rota){
+    const novoHash = "#/" + rota;
+    if (location.hash === novoHash) render();
+    else location.hash = novoHash;
+  }
 
   // ---------------------------------------------------------------------
   // Render — shell (sidebar + cabeçalho + roteador de página)
@@ -496,27 +538,50 @@
     const main = document.getElementById("main");
     main.style.padding = "0";
     main.innerHTML = telaAuthShell(
-      '<div class="redeem-badge" style="margin:0 0 16px;">' + ICONS.gift + '</div>' +
-      '<div class="redeem-title" style="text-align:left;">Entrar no painel Club\'n Loyal</div>' +
+      (LOGO_TAG_LOGIN
+        ? '<div style="text-align:center; margin:0 0 18px;">' + LOGO_TAG_LOGIN + '</div>'
+        : '<div class="redeem-badge" style="margin:0 0 16px;">' + ICONS.gift + '</div>') +
+      '<div class="redeem-title" style="text-align:left;">Plataforma Club\'n Loyal</div>' +
       '<p class="muted" style="font-size:13px; margin:0 0 16px;">Acesse com o e-mail e senha da sua empresa.</p>' +
       (avisoInicial ? '<div class="auth-error">'+esc(avisoInicial)+'</div>' : '') +
       '<form id="form-login" class="form-grid" style="grid-template-columns:1fr;">' +
-        '<div class="field"><label>E-mail</label><input type="email" name="email" required placeholder="voce@empresa.com"></div>' +
+        // type="text" (não "email") de propósito: o login do Painel Master
+        // ("mlf") não é um e-mail válido e um <input type="email" required>
+        // bloquearia o envio do formulário pela validação nativa do
+        // navegador antes mesmo do submit disparar.
+        '<div class="field"><label>E-mail</label><input type="text" inputmode="email" autocomplete="username" name="email" required placeholder="voce@empresa.com"></div>' +
         '<div class="field"><label>Senha</label><input type="password" name="senha" required placeholder="••••••••"></div>' +
         '<div id="erro-login" class="auth-error" style="display:none;"></div>' +
         '<button class="btn btn-primary" type="submit" style="justify-content:center; padding:11px;">Entrar</button>' +
-      '</form>' +
-      '<div class="auth-switch" style="margin-top:14px; font-size:12.5px; color:var(--text-muted);">Ainda não tem uma conta? <button id="ir-cadastro" type="button" style="background:none; border:none; color:var(--navy); font-weight:700; cursor:pointer; padding:0;">Cadastre sua empresa</button></div>'
+      '</form>'
     );
-    document.getElementById("ir-cadastro").addEventListener("click", ()=>renderSignup());
     document.getElementById("form-login").addEventListener("submit", async (e)=>{
       e.preventDefault();
       const fd = new FormData(e.target);
+      const email = String(fd.get("email")||"").trim();
+      const senha = fd.get("senha");
       const erroEl = document.getElementById("erro-login");
       erroEl.style.display = "none";
+      // Não existe uma tela de login separada para o Painel Master — o dono
+      // do produto simplesmente digita o login master ("mlf") no mesmo campo
+      // de e-mail. Detectado isso, tentamos o login master em vez do login
+      // normal por empresa (endpoints e formatos de token são diferentes).
+      if (email === "mlf"){
+        try {
+          const resp = await apiPublica("/master/login", { method:"POST", body:{ login: email, senha } });
+          localStorage.setItem("gb_token", resp.token);
+          localStorage.setItem("gb_role", "master");
+          await iniciarAppMaster();
+        } catch(err){
+          erroEl.textContent = mensagemErro(err, "Não foi possível entrar.");
+          erroEl.style.display = "block";
+        }
+        return;
+      }
       try {
-        const resp = await api("/auth/login", { method:"POST", body:{ email: fd.get("email"), senha: fd.get("senha") } });
+        const resp = await api("/auth/login", { method:"POST", body:{ email, senha } });
         localStorage.setItem("gb_token", resp.token);
+        localStorage.removeItem("gb_role");
         state.usuario = resp.usuario;
         await iniciarApp();
       } catch(err){
@@ -525,6 +590,11 @@
       }
     });
   }
+  // Cadastro de empresa (tenant) — não é mais alcançável publicamente pela
+  // tela de login (decisão do produto: sem auto-cadastro). A função fica
+  // guardada aqui só como referência do formulário; o Painel Master usa seu
+  // próprio modal (abrirModalMasterAddEmpresa), porque o contrato da criação
+  // pelo Master é diferente (não loga como a empresa nova) — ver routes/master.js.
   function renderSignup(){
     esconderShellInterno();
     const main = document.getElementById("main");
@@ -564,13 +634,35 @@
       }
     });
   }
+  // Um único listener estável no botão de sair, que decide em tempo de
+  // clique se a sessão atual é de uma empresa normal ou do Painel Master —
+  // evita ter que reamarrar o listener toda vez que troca de modo.
+  function logoutQualquer(){
+    if (localStorage.getItem("gb_role") === "master") logoutMaster();
+    else logout();
+  }
   function logout(){
     localStorage.removeItem("gb_token");
+    localStorage.removeItem("gb_role");
     state.ready = false;
     state.usuario = null;
     state.config = {};
     location.hash = "#/dashboard";
     renderLogin();
+  }
+  function logoutMaster(){
+    localStorage.removeItem("gb_token");
+    localStorage.removeItem("gb_role");
+    masterEmpresas = [];
+    location.hash = "#/dashboard";
+    renderLogin();
+  }
+  function ligarBotaoLogout(){
+    const btnLogout = document.getElementById("btn-logout");
+    if (btnLogout && !btnLogout.dataset.ligado){
+      btnLogout.dataset.ligado = "1";
+      btnLogout.addEventListener("click", logoutQualquer);
+    }
   }
   async function iniciarApp(){
     mostrarShellInterno();
@@ -592,13 +684,926 @@
     const papelEl = document.getElementById("user-role");
     if (nomeEl) nomeEl.textContent = state.usuario.nome;
     if (papelEl) papelEl.textContent = state.usuario.papel === "admin" ? "Administrador" : (state.usuario.papel || "");
-    const btnLogout = document.getElementById("btn-logout");
-    if (btnLogout && !btnLogout.dataset.ligado){
-      btnLogout.dataset.ligado = "1";
-      btnLogout.addEventListener("click", logout);
-    }
+    ligarBotaoLogout();
     if (!location.hash || rotaAtual().nome === "resgate" || rotaAtual().nome === "indicacao") location.hash = "#/dashboard";
     render();
+  }
+
+  // ---------------------------------------------------------------------
+  // Painel Master — super-admin cross-tenant (ver routes/master.js). Login
+  // é feito pelo MESMO formulário de login normal (submit acima detecta
+  // login==="mlf"); daqui pra frente o modo master é sinalizado por
+  // localStorage["gb_role"]==="master" e usa sua própria navegação/telas,
+  // mas reaproveita o mesmo shell (sidebar/topheader) e classes de CSS.
+  // ---------------------------------------------------------------------
+  let masterEmpresas = [];
+  let masterEmpresaAtual = null; // último detalhe carregado por renderMasterEmpresaDetalhe
+  let masterMostrarDesativadas = false;
+  function empresaMasterPorId(id){
+    if (masterEmpresaAtual && masterEmpresaAtual.id === id) return masterEmpresaAtual;
+    return masterEmpresas.find(e => e.id === id) || null;
+  }
+  // Status da empresa-cliente, controlado pelo Painel Master: 'ativa'
+  // (padrão, inclusive para empresas antigas sem o campo), 'bloqueada'
+  // (acesso suspenso na hora — ver requireAuth/api() — dados intactos) ou
+  // 'desativada' (soft-delete: nunca apaga nada, só some da lista padrão).
+  function statusEmpresa(e){ return (e && e.status) || 'ativa'; }
+  function badgeStatusEmpresa(status){
+    const labels = { ativa:"Ativa", bloqueada:"Bloqueada", desativada:"Desativada" };
+    const classe = status === 'bloqueada' ? 'b-expirado' : status === 'desativada' ? 'b-cancelado' : 'b-ativo';
+    return '<span class="badge '+classe+'">'+(labels[status]||status)+'</span>';
+  }
+  async function iniciarAppMaster(){
+    mostrarShellInterno();
+    document.getElementById("main").style.padding = "";
+    const rodape = document.getElementById("sidebar-foot");
+    if (rodape) rodape.innerHTML = '<div style="margin-bottom:2px;">Logado como <strong style="color:#fff;">Master</strong></div><div>Painel administrativo Club\'n Loyal</div>';
+    const nomeEl = document.getElementById("user-name");
+    const papelEl = document.getElementById("user-role");
+    const avatarEl = document.getElementById("user-avatar");
+    if (nomeEl) nomeEl.textContent = "Master";
+    if (papelEl) papelEl.textContent = "Super-admin";
+    if (avatarEl) avatarEl.innerHTML = "MX";
+    ligarBotaoLogout();
+    if (!location.hash || rotaAtual().nome !== "master") location.hash = "#/master";
+    render();
+  }
+  // Itens do menu lateral quando o Master está "dentro" de uma empresa
+  // (rota master/empresa/:id[/secao]) — cada um é uma tela de consulta
+  // somente-leitura dos dados que aquela empresa cadastrou/gerou. id vazio
+  // ("") é a Visão geral (KPIs, dados da conta, analytics, ações de conta).
+  const MASTER_EMPRESA_NAV = [
+    { id: "", label: "Visão geral", icon: "dashboard" },
+    { id: "clientes", label: "Clientes", icon: "clientes" },
+    { id: "produtos", label: "Produtos", icon: "produtos" },
+    { id: "campanhas", label: "Campanhas Giftback", icon: "campanhas" },
+    { id: "envios", label: "Envios Giftback", icon: "giftnav" },
+    { id: "campanhas-indicacao", label: "Campanhas Indicação", icon: "indicacoes" },
+    { id: "indicacoes", label: "Indicações", icon: "controleIndicacoes" },
+    { id: "vouchers", label: "Vouchers", icon: "check" },
+    { id: "vendas", label: "Vendas", icon: "compra" },
+  ];
+  function renderNavMaster(){
+    const nav = document.getElementById("nav");
+    if (!nav) return;
+    const { params } = rotaAtual();
+    if (params[0] === "empresa" && params[1]){
+      const id = params[1];
+      const secaoAtual = params[2] || "";
+      let empresa = empresaMasterPorId(id);
+      if (!empresa){
+        // Acesso direto (refresh) numa subpágina, antes de a empresa entrar
+        // no cache local — busca uma vez só pra mostrar o nome no menu, sem
+        // travar a página, e redesenha a nav quando chegar.
+        api("/master/empresas/"+id).then(det => {
+          if (det && det.empresa){
+            masterEmpresaAtual = Object.assign({}, det.empresa, { adminNome: det.adminNome, adminEmail: det.adminEmail });
+            if (rotaAtual().params[1] === id) renderNavMaster();
+          }
+        }).catch(()=>{});
+      }
+      nav.innerHTML =
+        '<button class="navitem" data-go="master"><span class="navlabel">← Empresas</span></button>' +
+        '<div style="padding:14px 14px 4px; font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:rgba(255,255,255,.5); font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' +
+          esc(empresa ? empresa.nome : "Empresa") +
+        '</div>' +
+        MASTER_EMPRESA_NAV.map(item => (
+          '<button class="navitem ' + (item.id===secaoAtual?'active':'') + '" data-go-empresa="' + item.id + '">' +
+            ICONS[item.icon] + '<span class="navlabel">' + item.label + '</span>' +
+          '</button>'
+        )).join("");
+      nav.querySelectorAll("[data-go]").forEach(btn => {
+        btn.addEventListener("click", ()=>{ ir(btn.getAttribute("data-go")); fecharMenuMobile(); });
+      });
+      nav.querySelectorAll("[data-go-empresa]").forEach(btn => {
+        btn.addEventListener("click", ()=>{
+          const s = btn.getAttribute("data-go-empresa");
+          ir("master/empresa/" + id + (s ? "/" + s : ""));
+          fecharMenuMobile();
+        });
+      });
+      return;
+    }
+    nav.innerHTML =
+      '<button class="navitem active" data-go="master">' + ICONS.empresa + '<span class="navlabel">Empresas clientes</span></button>';
+    const btn = nav.querySelector("[data-go]");
+    if (btn) btn.addEventListener("click", ()=>{ ir("master"); fecharMenuMobile(); });
+  }
+  function renderMasterView(){
+    const { params } = rotaAtual();
+    const main = document.getElementById("main");
+    main.style.padding = "";
+    if (params[0] === "empresa" && params[1]) return renderMasterEmpresaSecao(main, params[1], params[2] || "");
+    return renderMasterEmpresas(main);
+  }
+  // Roteador das subpáginas de uma empresa dentro do Master — cada entrada
+  // aponta pro endpoint de consulta (GET /master/empresas/:id<path>) e pra
+  // função que desenha a tabela com o resultado. "" cai na Visão geral, que
+  // tem sua própria função (renderMasterEmpresaDetalhe) por ser bem mais
+  // rica que uma tabela simples (KPIs, ações de conta, analytics).
+  const MASTER_EMPRESA_SECOES = {
+    "clientes": { titulo: "Clientes", desc: "Todos os clientes cadastrados por esta empresa.", path: "/clientes", tabela: (l)=>tabelaMasterEmpresaClientes(l) },
+    "produtos": { titulo: "Produtos", desc: "Catálogo de produtos cadastrado por esta empresa.", path: "/produtos", tabela: (l)=>tabelaMasterEmpresaProdutos(l) },
+    "campanhas": { titulo: "Campanhas de Giftback", desc: "Todas as campanhas de giftback criadas por esta empresa.", path: "/campanhas", tabela: (l)=>tabelaMasterEmpresaCampanhas(l) },
+    "envios": { titulo: "Envios de Giftback", desc: "Histórico de giftbacks enviados aos clientes desta empresa.", path: "/envios", tabela: (l)=>tabelaMasterEmpresaEnvios(l) },
+    "campanhas-indicacao": { titulo: "Campanhas de Indicação", desc: "Todas as campanhas de indicação criadas por esta empresa.", path: "/campanhas-indicacao", tabela: (l)=>tabelaMasterEmpresaCampanhasIndicacao(l) },
+    "indicacoes": { titulo: "Indicações", desc: "Indicações enviadas e confirmadas nesta empresa.", path: "/indicacoes", tabela: (l)=>tabelaMasterEmpresaIndicacoes(l) },
+    "vouchers": { titulo: "Vouchers", desc: "Vouchers emitidos para os clientes desta empresa.", path: "/vouchers", tabela: (l)=>tabelaMasterEmpresaVouchers(l) },
+    "vendas": { titulo: "Vendas", desc: "Histórico de vendas registradas por esta empresa.", path: "/vendas", tabela: (l)=>tabelaMasterEmpresaVendas(l) },
+  };
+  async function renderMasterEmpresaSecao(main, id, secao){
+    if (!secao) return renderMasterEmpresaDetalhe(main, id);
+    const conf = MASTER_EMPRESA_SECOES[secao];
+    if (!conf) return renderMasterEmpresaDetalhe(main, id);
+    const empresa = empresaMasterPorId(id);
+    setHeader(conf.titulo + (empresa ? " — " + empresa.nome : ""), conf.desc,
+      '<button class="btn header-btn btn-sm" id="btn-master-voltar-empresa">← Visão geral</button>');
+    // O botão acima já entra no DOM aqui (setHeader mexe direto no
+    // #header-actions, que não é limpo pelo "Carregando…" abaixo), então o
+    // listener é ligado JÁ NESTE PONTO — antes do await — pra não deixar uma
+    // janela em que o botão existe e responde a waitForSelector, mas um
+    // clique nele ainda não faz nada (foi exatamente essa corrida que
+    // causava falha intermitente nos testes e2e).
+    const btnVoltarEmpresa = document.getElementById("btn-master-voltar-empresa");
+    if (btnVoltarEmpresa) btnVoltarEmpresa.addEventListener("click", ()=> ir("master/empresa/"+id));
+    main.innerHTML = '<div class="card empty">Carregando…</div>';
+    let lista;
+    try { lista = await api("/master/empresas/"+id+conf.path); }
+    catch(err){
+      if (err.status === 401 || err.status === 403) return;
+      main.innerHTML = '<div class="card empty">Não foi possível carregar estes dados.</div>';
+      return;
+    }
+    main.innerHTML = '<div class="card table-wrap">' + conf.tabela(lista) + '</div>';
+  }
+  function tabelaMasterEmpresaClientes(lista){
+    if (!lista.length) return '<div class="empty">Nenhum cliente cadastrado.</div>';
+    const rows = lista.map(c => (
+      '<tr><td><strong>'+esc(c.nome)+'</strong></td>' +
+      '<td class="muted">'+esc(c.telefone||"—")+'</td>' +
+      '<td class="muted">'+esc(c.email||"—")+'</td>' +
+      '<td class="faint">'+dataBR(c.criadoEm)+'</td></tr>'
+    )).join("");
+    return '<table><thead><tr><th>Nome</th><th>WhatsApp</th><th>E-mail</th><th>Cadastrado em</th></tr></thead><tbody>'+rows+'</tbody></table>';
+  }
+  function tabelaMasterEmpresaProdutos(lista){
+    if (!lista.length) return '<div class="empty">Nenhum produto cadastrado.</div>';
+    const rows = lista.map(p => (
+      '<tr><td><strong>'+esc(p.nome)+'</strong></td>' +
+      '<td class="muted">'+esc(p.categoria||"—")+'</td>' +
+      '<td class="muted">'+(p.valorReferencia!=null?reais(p.valorReferencia):"—")+'</td>' +
+      '<td>'+(p.ativo?'<span class="badge b-ativo">Ativo</span>':'<span class="badge b-cancelado">Inativo</span>')+'</td></tr>'
+    )).join("");
+    return '<table><thead><tr><th>Produto</th><th>Categoria</th><th>Valor de referência</th><th>Status</th></tr></thead><tbody>'+rows+'</tbody></table>';
+  }
+  function tabelaMasterEmpresaCampanhas(lista){
+    if (!lista.length) return '<div class="empty">Nenhuma campanha de giftback cadastrada.</div>';
+    const rows = lista.map(c => (
+      '<tr><td><strong>'+esc(c.titulo)+'</strong></td>' +
+      '<td class="muted">'+esc(c.produtoGatilhoNome||"—")+' → '+esc(c.produtoAlvoNome||"—")+'</td>' +
+      '<td class="muted">'+reais(c.valor)+'</td>' +
+      '<td class="muted">'+reais(c.valorMinimoCompra||0)+'</td>' +
+      '<td class="muted">'+esc(c.status)+'</td></tr>'
+    )).join("");
+    return '<table><thead><tr><th>Título</th><th>Gatilho → Alvo</th><th>Valor giftback</th><th>Compra mínima</th><th>Status</th></tr></thead><tbody>'+rows+'</tbody></table>';
+  }
+  function tabelaMasterEmpresaCampanhasIndicacao(lista){
+    if (!lista.length) return '<div class="empty">Nenhuma campanha de indicação cadastrada.</div>';
+    const rows = lista.map(c => (
+      '<tr><td><strong>'+esc(c.titulo)+'</strong></td>' +
+      '<td class="muted">'+esc(c.premioIndicador||"—")+'</td>' +
+      '<td class="muted">'+esc(c.premioIndicado||"—")+'</td>' +
+      '<td class="muted">'+(c.metaIndicacoes||0)+'</td>' +
+      '<td class="muted">'+esc(c.status)+'</td></tr>'
+    )).join("");
+    return '<table><thead><tr><th>Título</th><th>Prêmio do indicador</th><th>Prêmio do indicado</th><th>Meta</th><th>Status</th></tr></thead><tbody>'+rows+'</tbody></table>';
+  }
+  function tabelaMasterEmpresaEnvios(lista){
+    if (!lista.length) return '<div class="empty">Nenhum giftback enviado ainda.</div>';
+    const rows = lista.map(e => (
+      '<tr><td><strong>'+esc(e.clienteNome||"—")+'</strong></td>' +
+      '<td class="muted">'+esc(e.campanhaTitulo||"—")+'</td>' +
+      '<td>'+badgeStatus(e.status)+'</td>' +
+      '<td class="faint">'+dataBR(e.dataEnvio)+'</td>' +
+      '<td class="faint">'+(e.dataConfirmacao?dataBR(e.dataConfirmacao):"—")+'</td></tr>'
+    )).join("");
+    return '<table><thead><tr><th>Cliente</th><th>Campanha</th><th>Status</th><th>Enviado em</th><th>Confirmado em</th></tr></thead><tbody>'+rows+'</tbody></table>' +
+      (lista.length >= 300 ? '<div class="faint" style="padding:10px 4px 2px; font-size:11.5px;">Mostrando os 300 mais recentes.</div>' : '');
+  }
+  function tabelaMasterEmpresaVouchers(lista){
+    if (!lista.length) return '<div class="empty">Nenhum voucher emitido ainda.</div>';
+    const rows = lista.map(v => (
+      '<tr><td><strong>'+esc(v.clienteNome||"—")+'</strong></td>' +
+      '<td>'+badgeVoucher(v)+'</td>' +
+      '<td class="muted">'+reais(v.valor)+'</td>' +
+      '<td class="faint">'+dataBR(v.emitidoEm)+'</td>' +
+      '<td class="faint">'+dataBR(v.validoAte)+'</td></tr>'
+    )).join("");
+    return '<table><thead><tr><th>Cliente</th><th>Voucher</th><th>Valor</th><th>Emitido em</th><th>Válido até</th></tr></thead><tbody>'+rows+'</tbody></table>' +
+      (lista.length >= 300 ? '<div class="faint" style="padding:10px 4px 2px; font-size:11.5px;">Mostrando os 300 mais recentes.</div>' : '');
+  }
+  function tabelaMasterEmpresaIndicacoes(lista){
+    if (!lista.length) return '<div class="empty">Nenhuma indicação enviada ainda.</div>';
+    const rows = lista.map(i => (
+      '<tr><td><strong>'+esc(i.indicadorNome||"—")+'</strong></td>' +
+      '<td class="muted">'+esc(i.campanhaTitulo||"—")+'</td>' +
+      '<td>'+badgeStatus(i.status)+'</td>' +
+      '<td class="muted">'+(i.indicados&&i.indicados.length ? i.indicados.map(a=>esc(a.nome)).join(", ") : '<span class="faint">nenhum amigo confirmado</span>')+'</td>' +
+      '<td class="faint">'+dataBR(i.dataEnvio)+'</td></tr>'
+    )).join("");
+    return '<table><thead><tr><th>Indicador</th><th>Campanha</th><th>Status</th><th>Amigos confirmados</th><th>Enviada em</th></tr></thead><tbody>'+rows+'</tbody></table>' +
+      (lista.length >= 300 ? '<div class="faint" style="padding:10px 4px 2px; font-size:11.5px;">Mostrando as 300 mais recentes.</div>' : '');
+  }
+  function tabelaMasterEmpresaVendas(lista){
+    if (!lista.length) return '<div class="empty">Nenhuma venda registrada ainda.</div>';
+    const labelsOrigem = { compra_direta:"Compra direta", conversao_giftback:"Conversão de giftback", importacao:"Importação" };
+    const rows = lista.map(v => (
+      '<tr><td><strong>'+esc(v.clienteNome||"—")+'</strong></td>' +
+      '<td class="muted">'+esc(v.produtoNome||"—")+'</td>' +
+      '<td class="muted">'+reais(v.valor)+'</td>' +
+      '<td class="muted">'+(labelsOrigem[v.origem]||v.origem)+'</td>' +
+      '<td class="faint">'+dataBR(v.data)+'</td></tr>'
+    )).join("");
+    return '<table><thead><tr><th>Cliente</th><th>Produto</th><th>Valor</th><th>Origem</th><th>Data</th></tr></thead><tbody>'+rows+'</tbody></table>' +
+      (lista.length >= 300 ? '<div class="faint" style="padding:10px 4px 2px; font-size:11.5px;">Mostrando as 300 mais recentes.</div>' : '');
+  }
+
+  async function renderMasterEmpresas(main){
+    setHeader("Painel Master", "Todas as empresas clientes da plataforma Club'n Loyal, com o desempenho de cada uma.",
+      '<button class="btn header-btn btn-sm" id="btn-master-add">' + ICONS.plus + ' Adicionar cliente</button>');
+    // Liga o clique JÁ AQUI, antes do "await api(...)" abaixo: o botão entra
+    // no DOM na hora (setHeader escreve direto em #header-actions, que fica
+    // fora do #main e não é apagado pelo "Carregando…"), então se o listener
+    // só fosse ligado depois do await existiria uma janela em que o botão
+    // está visível e clicável mas ainda sem ação nenhuma — corrida que já
+    // causou falha intermitente no clique de "Adicionar cliente" em testes
+    // e2e (o quanto mais devagar a consulta /master/empresas, ex. com muitas
+    // empresas cadastradas, maior a chance de o clique cair nessa janela).
+    const btnAdd = document.getElementById("btn-master-add");
+    if (btnAdd) btnAdd.addEventListener("click", abrirModalMasterAddEmpresa);
+    main.innerHTML = '<div class="card empty">Carregando empresas…</div>';
+    masterEmpresaAtual = null;
+    try { masterEmpresas = await api("/master/empresas"); }
+    catch(err){
+      if (err.status === 401 || err.status === 403) return;
+      main.innerHTML = '<div class="card empty">Não foi possível carregar as empresas.</div>';
+      return;
+    }
+    const totalClientes = masterEmpresas.reduce((s,e)=>s+(e.clientesTotal||0),0);
+    const totalEnvios = masterEmpresas.reduce((s,e)=>s+(e.enviosTotal||0),0);
+    const totalFaturamento = masterEmpresas.reduce((s,e)=>s+(e.faturamentoEfetivo||0),0);
+    main.innerHTML =
+      '<div class="grid kpis">' +
+        kpi("empresa", "Empresas clientes", masterEmpresas.length, "") +
+        kpi("clientes", "Clientes (todas as empresas)", totalClientes, "") +
+        kpi("giftnav", "Giftbacks enviados (total)", totalEnvios, "") +
+        kpi("check", "Faturamento realizado (total)", reais(totalFaturamento), "") +
+      '</div>' +
+      '<div class="section">' +
+        '<div class="section-head"><div class="section-title">Empresas cadastradas</div></div>' +
+        '<div class="card table-wrap">' +
+          (masterEmpresas.length ? tabelaMasterEmpresas(masterEmpresas) : '<div class="empty">Nenhuma empresa cadastrada ainda.</div>') +
+        '</div>' +
+      '</div>' +
+      '<div style="margin-top:14px;">' +
+        '<button type="button" class="btn btn-ghost btn-sm" id="btn-master-toggle-desativadas">' +
+          (masterMostrarDesativadas ? 'Ocultar empresas desativadas' : 'Ver empresas desativadas') +
+        '</button>' +
+      '</div>' +
+      '<div id="master-desativadas-wrap" style="margin-top:12px;"></div>';
+    main.querySelectorAll("[data-master-ver]").forEach(btn => {
+      btn.addEventListener("click", ()=> ir("master/empresa/" + btn.getAttribute("data-master-ver")));
+    });
+    ligarAcoesEmpresaEmMain(main);
+    document.getElementById("btn-master-toggle-desativadas").addEventListener("click", async ()=>{
+      masterMostrarDesativadas = !masterMostrarDesativadas;
+      renderMasterEmpresas(main);
+    });
+    if (masterMostrarDesativadas) await renderMasterEmpresasDesativadas(main);
+  }
+  async function renderMasterEmpresasDesativadas(main){
+    const wrap = document.getElementById("master-desativadas-wrap");
+    if (!wrap) return;
+    wrap.innerHTML = '<div class="card empty">Carregando…</div>';
+    let lista;
+    try { lista = await api("/master/empresas?desativadas=1"); }
+    catch(err){
+      if (err.status === 401 || err.status === 403) return;
+      wrap.innerHTML = '<div class="card empty">Não foi possível carregar as empresas desativadas.</div>';
+      return;
+    }
+    wrap.innerHTML =
+      '<div class="card table-wrap">' +
+        (lista.length ? (
+          '<table><thead><tr><th>Empresa</th><th>Status</th><th>Criada em</th><th></th></tr></thead><tbody>' +
+          lista.map(e => (
+            '<tr><td><strong>'+esc(e.nome)+'</strong></td>' +
+            '<td>'+badgeStatusEmpresa('desativada')+'</td>' +
+            '<td class="faint">'+dataBR(e.criadoEm)+'</td>' +
+            '<td><button class="btn btn-primary btn-sm" data-reativar-empresa="'+e.id+'">Reativar</button></td></tr>'
+          )).join("") + '</tbody></table>'
+        ) : '<div class="empty">Nenhuma empresa desativada.</div>') +
+      '</div>';
+    masterEmpresas = masterEmpresas.concat(lista);
+    ligarAcoesEmpresaEmMain(wrap);
+  }
+  function tabelaMasterEmpresas(lista){
+    const rows = lista.map(e => (
+      '<tr>' +
+        '<td><strong>'+esc(e.nome)+'</strong><div class="faint" style="font-size:11px; margin-top:2px;">'+esc(e.adminNome||"")+(e.adminEmail?' · '+esc(e.adminEmail):'')+'</div></td>' +
+        '<td>'+badgeStatusEmpresa(statusEmpresa(e))+'</td>' +
+        '<td class="faint">'+dataBR(e.criadoEm)+'</td>' +
+        '<td class="muted">'+(e.clientesTotal||0)+'</td>' +
+        '<td class="muted">'+(e.campanhasAtivas||0)+'</td>' +
+        '<td class="muted">'+(e.enviosTotal||0)+' <span class="faint">('+(e.taxaConfirmados||0)+'% conf.)</span></td>' +
+        '<td class="muted">'+reais(e.faturamentoEfetivo||0)+'</td>' +
+        '<td class="btn-row"><button class="btn btn-sm" data-master-ver="'+e.id+'">Ver detalhes</button>' + acoesEmpresaHtml(e) + '</td>' +
+      '</tr>'
+    )).join("");
+    return '<table><thead><tr><th>Empresa</th><th>Status</th><th>Criada em</th><th>Clientes</th><th>Campanhas ativas</th><th>Giftbacks enviados</th><th>Faturamento realizado</th><th>Ações</th></tr></thead><tbody>'+rows+'</tbody></table>';
+  }
+
+  // Linha de botões de ação de conta (Editar, Nova senha, Aparência,
+  // Bloquear/Desbloquear, Desativar) — reaproveitada na lista (célula
+  // "Ações" de cada linha) e no topo do detalhe de cada empresa.
+  function acoesEmpresaHtml(empresa){
+    const status = statusEmpresa(empresa);
+    return (
+      '<div class="btn-row">' +
+        '<button type="button" class="btn btn-ghost btn-sm" data-editar-empresa="'+empresa.id+'">Editar dados</button>' +
+        '<button type="button" class="btn btn-ghost btn-sm" data-senha-empresa="'+empresa.id+'">Nova senha</button>' +
+        '<button type="button" class="btn btn-ghost btn-sm" data-aparencia-empresa="'+empresa.id+'">Aparência</button>' +
+        '<button type="button" class="btn btn-ghost btn-sm" data-bloquear-empresa="'+empresa.id+'">'+(status==='bloqueada'?'Desbloquear':'Bloquear')+'</button>' +
+        '<button type="button" class="btn btn-ghost btn-sm" data-desativar-empresa="'+empresa.id+'">Desativar</button>' +
+      '</div>'
+    );
+  }
+  // Liga todos os botões de ação de conta presentes dentro de `main` (ou de
+  // um trecho dele) — chamado depois de renderizar tanto a lista quanto o
+  // detalhe, já que os dois usam os mesmos atributos data-*.
+  function ligarAcoesEmpresaEmMain(main){
+    main.querySelectorAll("[data-editar-empresa]").forEach(btn => {
+      btn.addEventListener("click", ()=> abrirModalMasterEditarEmpresa(btn.getAttribute("data-editar-empresa")));
+    });
+    main.querySelectorAll("[data-senha-empresa]").forEach(btn => {
+      btn.addEventListener("click", ()=> abrirModalMasterNovaSenha(btn.getAttribute("data-senha-empresa")));
+    });
+    main.querySelectorAll("[data-aparencia-empresa]").forEach(btn => {
+      btn.addEventListener("click", ()=> abrirModalMasterAparencia(btn.getAttribute("data-aparencia-empresa")));
+    });
+    main.querySelectorAll("[data-bloquear-empresa]").forEach(btn => {
+      btn.addEventListener("click", ()=> alternarBloqueioEmpresaMaster(btn.getAttribute("data-bloquear-empresa")));
+    });
+    main.querySelectorAll("[data-desativar-empresa]").forEach(btn => {
+      btn.addEventListener("click", ()=> abrirModalMasterConfirmarDesativacao(btn.getAttribute("data-desativar-empresa")));
+    });
+    main.querySelectorAll("[data-reativar-empresa]").forEach(btn => {
+      btn.addEventListener("click", ()=> reativarEmpresaMaster(btn.getAttribute("data-reativar-empresa")));
+    });
+  }
+
+  async function renderMasterEmpresaDetalhe(main, id){
+    setHeader("Empresa", "Carregando…", '<button class="btn header-btn btn-sm" id="btn-master-voltar">← Voltar</button>');
+    // Mesmo motivo do comentário em renderMasterEmpresas: liga o clique já
+    // no estado de "Carregando…", antes do await, pra não ter janela sem
+    // ação nenhuma nesse botão.
+    ligarBtnMasterVoltar();
+    main.innerHTML = '<div class="card empty">Carregando…</div>';
+    let det;
+    try { det = await api("/master/empresas/"+id); }
+    catch(err){
+      if (err.status === 401 || err.status === 403) return;
+      main.innerHTML = '<div class="card empty">Não foi possível carregar esta empresa.</div>';
+      return;
+    }
+    const emp = det.empresa || {};
+    const s = det.stats || {};
+    const analytics = det.analytics || {};
+    masterEmpresaAtual = Object.assign({}, emp, {
+      adminNome: det.adminNome, adminEmail: det.adminEmail,
+    });
+    setHeader("Empresa: " + (emp.nomeEmpresa || emp.nome || ""), "Cliente desde " + dataBR(det.criadoEm) + ".",
+      '<button class="btn header-btn btn-sm" id="btn-master-voltar">← Voltar</button>');
+    ligarBtnMasterVoltar();
+    main.innerHTML =
+      '<div class="card" style="margin-bottom:18px; display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap;">' +
+        '<div>' + badgeStatusEmpresa(statusEmpresa(emp)) + '</div>' +
+        acoesEmpresaHtml(masterEmpresaAtual) +
+      '</div>' +
+      '<div class="grid kpis">' +
+        kpi("clientes", "Clientes cadastrados", s.clientesTotal||0, "") +
+        kpi("campanhas", "Campanhas ativas", s.campanhasAtivas||0, "") +
+        kpi("giftnav", "Giftbacks enviados", s.enviosTotal||0, (s.taxaConfirmados||0) + "% confirmados") +
+        kpi("check", "Vouchers ativos", s.vouchersAtivos||0, (s.vouchersUtilizados||0) + " já utilizados") +
+        kpi("compra", "Faturamento realizado", reais(s.faturamentoEfetivo||0), "") +
+      '</div>' +
+      '<div class="card" style="margin:18px 0;">' +
+        '<div class="section-title" style="margin-bottom:12px;">Dados da conta</div>' +
+        '<div class="form-grid">' +
+          '<div class="field"><label>Empresa</label><div style="font-size:13.5px;">'+esc(emp.nome)+'</div></div>' +
+          '<div class="field"><label>Criada em</label><div style="font-size:13.5px;">'+dataBR(det.criadoEm)+'</div></div>' +
+          '<div class="field"><label>Administrador</label><div style="font-size:13.5px;">'+esc(det.adminNome||"—")+'</div></div>' +
+          '<div class="field"><label>E-mail de acesso</label><div style="font-size:13.5px;">'+esc(det.adminEmail||"—")+'</div></div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="grid grid-split" style="margin-bottom:18px;">' +
+        cardAnaliticsGiftbackMaster(analytics) +
+        cardAnaliticsIndicacaoMaster(analytics) +
+      '</div>' +
+      '<div class="section">' +
+        '<div class="section-head"><div class="section-title">Campanhas de Giftback</div></div>' +
+        '<div class="card table-wrap">' +
+          (det.campanhas && det.campanhas.length ? tabelaMasterCampanhas(det.campanhas) : '<div class="empty">Nenhuma campanha de giftback cadastrada.</div>') +
+        '</div>' +
+      '</div>' +
+      '<div class="section">' +
+        '<div class="section-head"><div class="section-title">Campanhas de Indicação</div></div>' +
+        '<div class="card table-wrap">' +
+          (det.campanhasIndicacao && det.campanhasIndicacao.length ? tabelaMasterCampanhasIndicacao(det.campanhasIndicacao) : '<div class="empty">Nenhuma campanha de indicação cadastrada.</div>') +
+        '</div>' +
+      '</div>';
+    ligarAcoesEmpresaEmMain(main);
+  }
+  // Liga o clique do botão "← Voltar" do cabeçalho da Visão geral de uma
+  // empresa no Master. setHeader() troca o innerHTML de #header-actions toda
+  // vez que é chamado, então o elemento é recriado a cada render (estado de
+  // "Carregando…" e depois com os dados) — por isso este helper é chamado
+  // logo depois de CADA setHeader(...) que inclui esse botão, nunca só uma
+  // vez no fim, pra nunca deixar o botão visível sem o listener ligado.
+  function ligarBtnMasterVoltar(){
+    const btn = document.getElementById("btn-master-voltar");
+    if (btn) btn.addEventListener("click", ()=> ir("master"));
+  }
+  // Métricas derivadas (enviado/confirmado/% e efetivação em vendas) para um
+  // dos dois programas, a partir dos números brutos vindos do backend
+  // (calcularAnalyticsMaster em dashboardStats.js).
+  function metricasProgramaEmpresaMaster(analytics, tipo){
+    if (tipo === 'giftback'){
+      const enviadosQtd = Number(analytics.giftbackEnviadosQtd)||0;
+      const enviadosValor = Number(analytics.giftbackEnviadosValor)||0;
+      const confirmadosQtd = Number(analytics.giftbackConfirmadosQtd)||0;
+      const vendasValor = Number(analytics.giftbackVendasGeradasValor)||0;
+      return {
+        enviadosQtd, enviadosValor, confirmadosQtd, vendasValor,
+        pctConfirmado: enviadosQtd ? (confirmadosQtd/enviadosQtd*100) : 0,
+        pctEfetivacao: enviadosValor ? (vendasValor/enviadosValor*100) : 0,
+      };
+    }
+    const enviadosQtd = Number(analytics.indicacaoEnviadosQtd)||0;
+    const confirmadosQtd = Number(analytics.indicacaoConfirmadosQtd)||0;
+    const vendasValor = Number(analytics.indicacaoVendasGeradasValor)||0;
+    return {
+      enviadosQtd, confirmadosQtd, vendasValor,
+      pctConfirmado: enviadosQtd ? (confirmadosQtd/enviadosQtd*100) : 0,
+      ticketMedio: confirmadosQtd ? (vendasValor/confirmadosQtd) : 0,
+    };
+  }
+  function cardAnaliticsGiftbackMaster(analytics){
+    const m = metricasProgramaEmpresaMaster(analytics, 'giftback');
+    const evo = analytics.evolucaoMensal || [];
+    return (
+      '<div class="card">' +
+        '<div class="section-title" style="margin-bottom:14px; display:flex; align-items:center; gap:8px;">' + ICONS.giftnav + ' Giftback</div>' +
+        '<div class="grid kpis" style="margin-bottom:18px;">' +
+          kpi("giftnav", "Enviado", m.enviadosQtd, reais(m.enviadosValor)+" ofertados") +
+          kpi("check", "Confirmado", m.confirmadosQtd, m.pctConfirmado.toFixed(0)+"% de conversão") +
+          kpi("compra", "Efetivou em vendas", reais(m.vendasValor), m.pctEfetivacao.toFixed(0)+"% do valor ofertado") +
+        '</div>' +
+        '<div class="eyebrow" style="margin-bottom:6px;">Evolução (últimos 6 meses)</div>' +
+        graficoEvolucaoSvg(evo.map(x=>x.mes), evo.map(x=>x.giftbackEnviados||0), evo.map(x=>x.giftbackConfirmados||0), "Enviados", "Confirmados") +
+      '</div>'
+    );
+  }
+  function cardAnaliticsIndicacaoMaster(analytics){
+    const m = metricasProgramaEmpresaMaster(analytics, 'indicacao');
+    const evo = analytics.evolucaoMensal || [];
+    return (
+      '<div class="card">' +
+        '<div class="section-title" style="margin-bottom:14px; display:flex; align-items:center; gap:8px;">' + ICONS.indicacoes + ' Indicações</div>' +
+        '<div class="grid kpis" style="margin-bottom:18px;">' +
+          kpi("indicacoes", "Enviado", m.enviadosQtd, "indicações enviadas") +
+          kpi("check", "Confirmado", m.confirmadosQtd, m.pctConfirmado.toFixed(0)+"% de conversão") +
+          kpi("compra", "Efetivou em vendas", reais(m.vendasValor), "ticket médio "+reais(m.ticketMedio)) +
+        '</div>' +
+        '<div class="eyebrow" style="margin-bottom:6px;">Evolução (últimos 6 meses)</div>' +
+        graficoEvolucaoSvg(evo.map(x=>x.mes), evo.map(x=>x.indicacaoEnviados||0), evo.map(x=>x.indicacaoConfirmados||0), "Enviadas", "Confirmadas") +
+      '</div>'
+    );
+  }
+  // ---------------------------------------------------------------------
+  // Mini-gráfico de evolução (SVG inline, sem dependências) — usado nos
+  // cartões de análise de Giftback/Indicações do Painel Master. Sempre duas
+  // séries de mesma unidade (contagens), um único eixo Y (nunca eixo duplo).
+  // Cores fixas: azul = "Enviados", laranja = "Confirmados" — mesma
+  // identidade em todo o painel.
+  // ---------------------------------------------------------------------
+  function proximoTetoLimpo(v){
+    if (v <= 5) return 5;
+    const pot = Math.pow(10, Math.floor(Math.log10(v)));
+    const norm = v / pot;
+    let passo;
+    if (norm <= 1) passo = 1;
+    else if (norm <= 2) passo = 2;
+    else if (norm <= 5) passo = 5;
+    else passo = 10;
+    return passo * pot;
+  }
+  function graficoEvolucaoSvg(meses, serieA, serieB, labelA, labelB){
+    if (!meses || !meses.length){
+      return '<div class="empty" style="padding:22px 12px;">Sem histórico suficiente ainda.</div>';
+    }
+    const corA = "#2a78d6"; // categórico slot 1 (azul)
+    const corB = "#eb6834"; // categórico slot 2 (laranja)
+    const W = 480, H = 168, padL = 32, padR = 12, padT = 12, padB = 22;
+    const maiorValor = Math.max(1, Math.max.apply(null, serieA), Math.max.apply(null, serieB));
+    const maxTick = proximoTetoLimpo(maiorValor);
+    const midTick = maxTick / 2;
+    const n = meses.length;
+    const xStep = n > 1 ? (W - padL - padR) / (n - 1) : 0;
+    const xAt = i => padL + i * xStep;
+    const yAt = v => (H - padB) - (Math.max(0,v) / maxTick) * (H - padT - padB);
+
+    function caminho(serie){
+      return serie.map((v,i) => (i===0?'M':'L') + xAt(i).toFixed(1) + ',' + yAt(v).toFixed(1)).join(' ');
+    }
+    function marcadores(serie, cor, label){
+      return serie.map((v,i) => (
+        '<circle cx="'+xAt(i).toFixed(1)+'" cy="'+yAt(v).toFixed(1)+'" r="4" fill="'+cor+'" stroke="var(--surface)" stroke-width="2">' +
+          '<title>' + esc(meses[i]) + ' · ' + esc(label) + ': ' + Math.round(v).toLocaleString('pt-BR') + '</title>' +
+        '</circle>'
+      )).join('');
+    }
+    const linhasGrade = [0, midTick, maxTick].map(v => {
+      const y = yAt(v).toFixed(1);
+      return '<line x1="'+padL+'" y1="'+y+'" x2="'+(W-padR)+'" y2="'+y+'" stroke="var(--border)" stroke-width="1"/>' +
+        '<text x="'+(padL-6)+'" y="'+y+'" text-anchor="end" dominant-baseline="middle" font-size="9.5" fill="var(--text-faint)">'+Math.round(v).toLocaleString('pt-BR')+'</text>';
+    }).join('');
+    const rotulosX = meses.map((m,i) => (
+      '<text x="'+xAt(i).toFixed(1)+'" y="'+(H-6)+'" text-anchor="middle" font-size="9.5" fill="var(--text-faint)">'+esc(String(m).replace(/\/\d+$/,''))+'</text>'
+    )).join('');
+    const ultimoA = serieA[serieA.length-1] || 0;
+    const ultimoB = serieB[serieB.length-1] || 0;
+    const rotuloFimA = '<text x="'+(xAt(n-1)+7).toFixed(1)+'" y="'+(yAt(ultimoA)-5).toFixed(1)+'" font-size="10.5" font-weight="700" fill="var(--text)">'+Math.round(ultimoA).toLocaleString('pt-BR')+'</text>';
+    const rotuloFimB = '<text x="'+(xAt(n-1)+7).toFixed(1)+'" y="'+(yAt(ultimoB)+13).toFixed(1)+'" font-size="10.5" font-weight="700" fill="var(--text)">'+Math.round(ultimoB).toLocaleString('pt-BR')+'</text>';
+
+    return (
+      '<svg viewBox="0 0 '+W+' '+H+'" width="100%" height="'+H+'" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Evolução mensal de '+esc(labelA)+' e '+esc(labelB)+'" style="overflow:visible; display:block;">' +
+        linhasGrade +
+        '<path d="'+caminho(serieA)+'" fill="none" stroke="'+corA+'" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>' +
+        '<path d="'+caminho(serieB)+'" fill="none" stroke="'+corB+'" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>' +
+        marcadores(serieA, corA, labelA) +
+        marcadores(serieB, corB, labelB) +
+        rotuloFimA + rotuloFimB +
+        rotulosX +
+      '</svg>' +
+      '<div class="btn-row" style="margin-top:6px; gap:14px;">' +
+        '<span class="faint" style="display:flex; align-items:center; gap:5px; font-size:11px;"><span style="width:9px; height:9px; border-radius:50%; background:'+corA+'; display:inline-block;"></span>'+esc(labelA)+'</span>' +
+        '<span class="faint" style="display:flex; align-items:center; gap:5px; font-size:11px;"><span style="width:9px; height:9px; border-radius:50%; background:'+corB+'; display:inline-block;"></span>'+esc(labelB)+'</span>' +
+      '</div>'
+    );
+  }
+  function tabelaMasterCampanhas(lista){
+    const rows = lista.map(c => (
+      '<tr><td><strong>'+esc(c.titulo)+'</strong></td><td class="muted">'+reais(c.valor)+'</td><td class="muted">'+esc(c.status)+'</td></tr>'
+    )).join("");
+    return '<table><thead><tr><th>Título</th><th>Valor giftback</th><th>Status</th></tr></thead><tbody>'+rows+'</tbody></table>';
+  }
+  function tabelaMasterCampanhasIndicacao(lista){
+    const rows = lista.map(c => (
+      '<tr><td><strong>'+esc(c.titulo)+'</strong></td><td class="muted">'+esc(c.premioIndicador)+'</td><td class="muted">'+esc(c.status)+'</td></tr>'
+    )).join("");
+    return '<table><thead><tr><th>Título</th><th>Prêmio do indicador</th><th>Status</th></tr></thead><tbody>'+rows+'</tbody></table>';
+  }
+
+  // Seletor de cor principal + logo usado nos modais "Adicionar cliente" e
+  // "Editar aparência" do Painel Master — mesmos PALETA_CORES/roda de
+  // cores/upload de logo/preview em "tela de celular" já usados na tela
+  // Configurações → Aparência de cada empresa (renderConfigAparencia acima),
+  // só que num modal compacto em vez da tela cheia.
+  function corLogoPickerHtml(prefix, corAtual, logoAtual){
+    return (
+      '<div class="field full">' +
+        '<label>Cor principal</label>' +
+        '<div class="cor-swatches" data-picker-swatches="'+prefix+'">' +
+          PALETA_CORES.map(c => '<button type="button" class="cor-swatch'+(c.toLowerCase()===corAtual.toLowerCase()?' is-selected':'')+'" style="background:'+c+';" data-cor="'+c+'" title="'+c+'" aria-label="'+c+'"></button>').join("") +
+        '</div>' +
+        '<div class="cor-manual-row" style="margin-bottom:4px;">' +
+          '<label class="cor-picker-label" title="Roda de cores">' +
+            '<input type="color" data-picker-color="'+prefix+'" value="'+(/^#([0-9a-f]{6})$/i.test(corAtual)?corAtual:'#7c3aed')+'">' +
+          '</label>' +
+          '<input type="text" class="cor-hex-input" data-picker-hex="'+prefix+'" value="'+esc(corAtual)+'" placeholder="#1A264B" maxlength="7">' +
+        '</div>' +
+      '</div>' +
+      '<div class="field full">' +
+        '<label>Logo</label>' +
+        '<div class="logo-upload-row">' +
+          '<div class="logo-preview" data-picker-logo-preview="'+prefix+'">' + (logoAtual ? '<img src="'+esc(logoAtual)+'" alt="Logo">' : '<span class="logo-preview-vazio">Sem logo</span>') + '</div>' +
+          '<div class="logo-upload-actions">' +
+            '<label class="btn btn-sm" for="input-logo-'+prefix+'">' + ICONS.upload + ' Enviar logo</label>' +
+            '<input type="file" id="input-logo-'+prefix+'" data-picker-logo-input="'+prefix+'" accept="image/*" hidden>' +
+            '<button type="button" class="btn btn-sm btn-ghost" data-picker-logo-remover="'+prefix+'"'+(logoAtual?'':' disabled')+'>Remover logo</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="field full">' +
+        '<span class="muted" style="font-size:12px;">Como o cliente vai ver:</span>' +
+        '<div class="phone-frame" style="margin-top:8px;">' +
+          '<div class="phone-notch"></div>' +
+          '<div class="phone-screen" data-picker-preview="'+prefix+'"></div>' +
+        '</div>' +
+      '</div>'
+    );
+  }
+  // Liga os eventos do bloco acima dentro de `container` (o modal onde ele
+  // foi injetado). `estado` é um objeto mutável {cor, logo} que o chamador lê
+  // no submit. `getNome` (opcional) alimenta o preview com o nome da empresa
+  // sendo editada/criada. Retorna {atualizarPreview} para o chamador poder
+  // atualizar o preview quando o nome mudar (ex.: digitando no campo "Nome
+  // da empresa" do modal de criação).
+  function ligarCorLogoPicker(container, prefix, estado, getNome){
+    const swatchesWrap = container.querySelector('[data-picker-swatches="'+prefix+'"]');
+    const colorPicker = container.querySelector('[data-picker-color="'+prefix+'"]');
+    const hexInput = container.querySelector('[data-picker-hex="'+prefix+'"]');
+    const logoPreview = container.querySelector('[data-picker-logo-preview="'+prefix+'"]');
+    const logoInput = container.querySelector('[data-picker-logo-input="'+prefix+'"]');
+    const btnRemoverLogo = container.querySelector('[data-picker-logo-remover="'+prefix+'"]');
+    const previewMount = container.querySelector('[data-picker-preview="'+prefix+'"]');
+
+    function atualizarPreview(){
+      if (!previewMount) return;
+      const nome = getNome ? (getNome() || "Sua empresa") : "Sua empresa";
+      previewMount.innerHTML = previewAparenciaHtml(estado.cor, estado.logo, nome, "");
+    }
+    atualizarPreview();
+    ligarCronometro();
+
+    function aplicarCor(cor, origem){
+      estado.cor = cor;
+      if (swatchesWrap) swatchesWrap.querySelectorAll(".cor-swatch").forEach(sw => {
+        sw.classList.toggle("is-selected", sw.getAttribute("data-cor").toLowerCase() === cor.toLowerCase());
+      });
+      if (origem !== "hex" && hexInput) hexInput.value = cor;
+      if (origem !== "picker" && colorPicker && /^#([0-9a-f]{6})$/i.test(cor)) colorPicker.value = cor;
+      atualizarPreview();
+    }
+    if (swatchesWrap) swatchesWrap.querySelectorAll(".cor-swatch").forEach(sw => {
+      sw.addEventListener("click", () => aplicarCor(sw.getAttribute("data-cor")));
+    });
+    if (colorPicker) colorPicker.addEventListener("input", () => aplicarCor(colorPicker.value, "picker"));
+    if (hexInput) hexInput.addEventListener("input", () => {
+      const v = hexInput.value.trim();
+      if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(v)) aplicarCor(v, "hex");
+    });
+    if (logoInput) logoInput.addEventListener("change", async () => {
+      const file = logoInput.files && logoInput.files[0];
+      if (!file) return;
+      try {
+        const dataUrl = await redimensionarImagemQuadrada(file, 800);
+        estado.logo = dataUrl;
+        if (logoPreview) logoPreview.innerHTML = '<img src="'+esc(dataUrl)+'" alt="Logo">';
+        if (btnRemoverLogo) btnRemoverLogo.disabled = false;
+        atualizarPreview();
+      } catch(err){
+        toast(mensagemErro(err, "Não foi possível processar essa imagem."), 'erro');
+      }
+    });
+    if (btnRemoverLogo) btnRemoverLogo.addEventListener("click", () => {
+      estado.logo = "";
+      if (logoPreview) logoPreview.innerHTML = '<span class="logo-preview-vazio">Sem logo</span>';
+      btnRemoverLogo.disabled = true;
+      if (logoInput) logoInput.value = "";
+      atualizarPreview();
+    });
+    return { atualizarPreview };
+  }
+
+  function abrirModalMasterAddEmpresa(){
+    const overlay = abrirModal(
+      '<div class="section-title" style="margin-bottom:12px;">Adicionar empresa cliente</div>' +
+      '<form id="form-master-add" class="form-grid" style="grid-template-columns:1fr;">' +
+        '<div class="field"><label>Nome da empresa</label><input type="text" name="nomeEmpresa" required placeholder="Ex.: Clínica Bella Estética"></div>' +
+        '<div class="field"><label>Nome do administrador</label><input type="text" name="nomeAdmin" required placeholder="Nome completo"></div>' +
+        '<div class="field"><label>E-mail</label><input type="email" name="email" required placeholder="admin@empresa.com"></div>' +
+        '<div class="field"><label>Senha (mín. 6 caracteres)</label><input type="password" name="senha" required minlength="6" placeholder="••••••••"></div>' +
+        corLogoPickerHtml("master-novo", "#7c3aed", "") +
+        '<div id="erro-master-add" class="auth-error" style="display:none;"></div>' +
+        '<div class="btn-row" style="justify-content:flex-end;">' +
+          '<button type="button" class="btn btn-sm" id="btn-master-add-cancelar">Cancelar</button>' +
+          '<button class="btn btn-primary btn-sm" type="submit">' + ICONS.plus + ' Criar empresa</button>' +
+        '</div>' +
+      '</form>'
+    );
+    const btnCancelar = document.getElementById("btn-master-add-cancelar");
+    if (btnCancelar) btnCancelar.addEventListener("click", fecharModal);
+    const form = document.getElementById("form-master-add");
+    const nomeInput = form.querySelector('[name="nomeEmpresa"]');
+    const estadoAparencia = { cor: "#7c3aed", logo: "" };
+    const picker = ligarCorLogoPicker(overlay, "master-novo", estadoAparencia, ()=> nomeInput.value);
+    nomeInput.addEventListener("input", picker.atualizarPreview);
+    form.addEventListener("submit", async (e)=>{
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const erroEl = document.getElementById("erro-master-add");
+      erroEl.style.display = "none";
+      const botao = e.target.querySelector('button[type="submit"]');
+      botao.disabled = true;
+      try {
+        await api("/master/empresas", { method:"POST", body:{
+          nomeEmpresa: fd.get("nomeEmpresa"), nomeAdmin: fd.get("nomeAdmin"),
+          email: fd.get("email"), senha: fd.get("senha"),
+          corPrincipal: estadoAparencia.cor || "#7c3aed", logoUrl: estadoAparencia.logo || "",
+        }});
+        fecharModal();
+        toast("Empresa cliente criada.");
+        renderMasterEmpresas(document.getElementById("main"));
+      } catch(err){
+        botao.disabled = false;
+        if (err.status !== 401){
+          erroEl.textContent = mensagemErro(err, "Não foi possível criar a empresa.");
+          erroEl.style.display = "block";
+        }
+      }
+    });
+  }
+
+  function abrirModalMasterEditarEmpresa(id){
+    const empresa = empresaMasterPorId(id);
+    if (!empresa) return;
+    abrirModal(
+      '<div class="section-title" style="margin-bottom:12px;">Editar dados</div>' +
+      '<form id="form-master-editar" class="form-grid" style="grid-template-columns:1fr;">' +
+        campoComValor("nome","Nome da empresa","text",empresa.nome, true) +
+        campoComValor("adminNome","Nome do admin","text",empresa.adminNome, true) +
+        campoComValor("adminEmail","E-mail","email",empresa.adminEmail, true) +
+        '<div id="erro-master-editar" class="auth-error" style="display:none;"></div>' +
+        '<div class="btn-row" style="justify-content:flex-end;">' +
+          '<button type="button" class="btn btn-sm" id="btn-master-editar-cancelar">Cancelar</button>' +
+          '<button class="btn btn-primary btn-sm" type="submit">Salvar</button>' +
+        '</div>' +
+      '</form>'
+    );
+    const btnCancelar = document.getElementById("btn-master-editar-cancelar");
+    if (btnCancelar) btnCancelar.addEventListener("click", fecharModal);
+    const form = document.getElementById("form-master-editar");
+    form.addEventListener("submit", async (e)=>{
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const erroEl = document.getElementById("erro-master-editar");
+      erroEl.style.display = "none";
+      const botao = e.target.querySelector('button[type="submit"]');
+      botao.disabled = true;
+      try {
+        await api("/master/empresas/"+id, { method:"PUT", body:{
+          nome: fd.get("nome"), adminNome: fd.get("adminNome"), adminEmail: fd.get("adminEmail"),
+        }});
+        fecharModal();
+        toast("Dados atualizados.");
+        renderMasterView();
+      } catch(err){
+        botao.disabled = false;
+        if (err.status !== 401){
+          erroEl.textContent = mensagemErro(err, "Não foi possível salvar os dados.");
+          erroEl.style.display = "block";
+        }
+      }
+    });
+  }
+
+  function abrirModalMasterNovaSenha(id){
+    const empresa = empresaMasterPorId(id);
+    if (!empresa) return;
+    abrirModal(
+      '<div class="section-title" style="margin-bottom:4px;">Definir nova senha</div>' +
+      '<p class="muted" style="font-size:12.5px; margin:0 0 12px; line-height:1.5;">Define a senha de acesso de <strong>'+esc(empresa.nome)+'</strong>.</p>' +
+      '<form id="form-master-senha" class="form-grid" style="grid-template-columns:1fr;">' +
+        campo("senha","Nova senha","password","Mínimo de 6 caracteres", true) +
+        campo("confirmarSenha","Confirmar senha","password","Repita a senha", true) +
+        '<div id="erro-master-senha" class="auth-error" style="display:none;"></div>' +
+        '<div class="btn-row" style="justify-content:flex-end;">' +
+          '<button type="button" class="btn btn-sm" id="btn-master-senha-cancelar">Cancelar</button>' +
+          '<button class="btn btn-primary btn-sm" type="submit">Salvar senha</button>' +
+        '</div>' +
+      '</form>'
+    );
+    const btnCancelar = document.getElementById("btn-master-senha-cancelar");
+    if (btnCancelar) btnCancelar.addEventListener("click", fecharModal);
+    const form = document.getElementById("form-master-senha");
+    const erroEl = document.getElementById("erro-master-senha");
+    form.addEventListener("submit", async (e)=>{
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const senha = fd.get("senha")||"";
+      const confirmarSenha = fd.get("confirmarSenha")||"";
+      erroEl.style.display = "none";
+      if (senha.length < 6){
+        erroEl.textContent = "A senha deve ter pelo menos 6 caracteres.";
+        erroEl.style.display = "block";
+        return;
+      }
+      if (senha !== confirmarSenha){
+        erroEl.textContent = "As senhas não coincidem.";
+        erroEl.style.display = "block";
+        return;
+      }
+      const botao = e.target.querySelector('button[type="submit"]');
+      botao.disabled = true;
+      try {
+        await api("/master/empresas/"+id+"/senha", { method:"PUT", body:{ senha } });
+        fecharModal();
+        toast("Senha atualizada.");
+      } catch(err){
+        botao.disabled = false;
+        if (err.status !== 401){
+          erroEl.textContent = mensagemErro(err, "Não foi possível salvar a senha.");
+          erroEl.style.display = "block";
+        }
+      }
+    });
+  }
+
+  function alternarBloqueioEmpresaMaster(id){
+    const empresa = empresaMasterPorId(id);
+    if (!empresa) return;
+    const novoStatus = statusEmpresa(empresa) === 'bloqueada' ? 'ativa' : 'bloqueada';
+    api("/master/empresas/"+id+"/status", { method:"PUT", body:{ status: novoStatus } }).then(()=>{
+      toast(novoStatus === 'bloqueada' ? "Empresa bloqueada." : "Empresa desbloqueada.");
+      renderMasterView();
+    }).catch(err=>{
+      if (err.status !== 401 && err.status !== 403) toast(mensagemErro(err, "Não foi possível atualizar."), 'erro');
+    });
+  }
+
+  function abrirModalMasterConfirmarDesativacao(id){
+    const empresa = empresaMasterPorId(id);
+    if (!empresa) return;
+    abrirModal(
+      '<div class="section-title" style="margin-bottom:12px;">Desativar empresa</div>' +
+      '<p class="muted" style="font-size:13.5px; line-height:1.55;">Tem certeza que deseja desativar <strong>'+esc(empresa.nome)+'</strong>? Os dados da empresa são mantidos — nada é apagado — e ela some da lista padrão de clientes. Você pode reativá-la a qualquer momento em "Ver empresas desativadas".</p>' +
+      '<div class="btn-row" style="justify-content:flex-end; margin-top:14px;">' +
+        '<button type="button" class="btn btn-sm" id="btn-master-desativar-cancelar">Cancelar</button>' +
+        '<button type="button" class="btn btn-primary btn-sm" id="btn-master-desativar-confirmar">Desativar</button>' +
+      '</div>'
+    );
+    const btnCancelar = document.getElementById("btn-master-desativar-cancelar");
+    if (btnCancelar) btnCancelar.addEventListener("click", fecharModal);
+    document.getElementById("btn-master-desativar-confirmar").addEventListener("click", async ()=>{
+      try {
+        await api("/master/empresas/"+id+"/status", { method:"PUT", body:{ status:'desativada' } });
+        fecharModal();
+        toast("Empresa desativada.");
+        ir("master");
+      } catch(err){
+        if (err.status !== 401 && err.status !== 403) toast(mensagemErro(err, "Não foi possível desativar."), 'erro');
+      }
+    });
+  }
+
+  function reativarEmpresaMaster(id){
+    api("/master/empresas/"+id+"/status", { method:"PUT", body:{ status:'ativa' } }).then(()=>{
+      toast("Empresa reativada.");
+      renderMasterView();
+    }).catch(err=>{
+      if (err.status !== 401 && err.status !== 403) toast(mensagemErro(err, "Não foi possível reativar."), 'erro');
+    });
+  }
+
+  function abrirModalMasterAparencia(id){
+    const empresa = empresaMasterPorId(id);
+    if (!empresa) return;
+    const cor = empresa.corPrincipal || "#7c3aed";
+    const logo = empresa.logoUrl || "";
+    const overlay = abrirModal(
+      '<div class="section-title" style="margin-bottom:4px;">Editar aparência</div>' +
+      '<p class="muted" style="font-size:12.5px; margin:0 0 12px;">Cor e logo de <strong>'+esc(empresa.nome)+'</strong>, usadas nas páginas de giftback e indicação exibidas aos clientes dela.</p>' +
+      '<form id="form-master-aparencia" class="form-grid" style="grid-template-columns:1fr;">' +
+        corLogoPickerHtml("master-editar", cor, logo) +
+        '<div class="btn-row" style="justify-content:flex-end;">' +
+          '<button type="button" class="btn btn-sm" id="btn-master-aparencia-cancelar">Cancelar</button>' +
+          '<button class="btn btn-primary btn-sm" type="submit">Salvar aparência</button>' +
+        '</div>' +
+      '</form>'
+    );
+    const btnCancelar = document.getElementById("btn-master-aparencia-cancelar");
+    if (btnCancelar) btnCancelar.addEventListener("click", fecharModal);
+    const estado = { cor, logo };
+    ligarCorLogoPicker(overlay, "master-editar", estado, ()=> empresa.nome);
+    const form = document.getElementById("form-master-aparencia");
+    form.addEventListener("submit", async (e)=>{
+      e.preventDefault();
+      const botao = e.target.querySelector('button[type="submit"]');
+      botao.disabled = true;
+      try {
+        await api("/master/empresas/"+id+"/aparencia", { method:"PUT", body:{
+          corPrincipal: estado.cor || "#7c3aed", logoUrl: estado.logo || "",
+        }});
+        fecharModal();
+        toast("Aparência atualizada.");
+        renderMasterView();
+      } catch(err){
+        botao.disabled = false;
+        if (err.status !== 401 && err.status !== 403) toast(mensagemErro(err, "Não foi possível salvar a aparência."), 'erro');
+      }
+    });
   }
 
   let rotaAnterior = null;
@@ -617,10 +1622,17 @@
     }
     if (nome === "indicacao"){
       esconderShellInterno();
-      renderIndicacaoPublica(params[0]);
+      renderIndicacaoPublica(params[0], params[1] === "amigo");
       return;
     }
     if (!localStorage.getItem("gb_token")){ renderLogin(); return; }
+
+    if (localStorage.getItem("gb_role") === "master"){
+      mostrarShellInterno();
+      renderNavMaster();
+      renderMasterView();
+      return;
+    }
 
     mostrarShellInterno();
     renderNav(nome);
@@ -638,6 +1650,7 @@
     if (nome === "campanhas-consultar") return renderCampanhasConsultar(main);
     if (nome === "indicacoes-criar") return renderIndicacoesCriar(main);
     if (nome === "indicacoes-consultar") return renderIndicacoesConsultar(main);
+    if (nome === "indicacoes-enviar") return renderIndicacoesEnviar(main, params[0]);
     if (nome === "vendas-nova") return renderNovaCompra(main);
     if (nome === "vendas-consultar") return renderVendasConsultar(main);
     if (nome === "giftback-elegiveis") return renderGiftbackElegiveis(main);
@@ -646,6 +1659,8 @@
     if (nome === "indicacoes-resgate") return renderIndicacoesResgate(main);
     if (nome === "config-empresa") return renderConfigEmpresa(main);
     if (nome === "config-aparencia") return renderConfigAparencia(main);
+    if (nome === "config-whatsapp") return renderConfigWhatsapp(main);
+    if (nome === "config-wame") return renderConfigWame(main);
     return renderDashboard(main);
   }
 
@@ -783,6 +1798,12 @@
   function campo(name, label, type, placeholder, required){
     return '<div class="field"><label>'+esc(label)+(required?' *':'')+'</label>' +
       '<input type="'+type+'" name="'+name+'" placeholder="'+esc(placeholder||"")+'" '+(required?'required':'')+'></div>';
+  }
+  // Igual a campo(), mas pré-preenchido com um valor atual — usado nos
+  // formulários de edição (ex.: editar dados de empresa no Painel Master).
+  function campoComValor(name, label, type, valor, required){
+    return '<div class="field"><label>'+esc(label)+(required?' *':'')+'</label>' +
+      '<input type="'+type+'" name="'+name+'" value="'+esc(valor||"")+'" '+(required?'required':'')+'></div>';
   }
 
   // ---------------------------------------------------------------------
@@ -1300,6 +2321,7 @@
       if (enviado){
         return '<tr><td colspan="3">' +
           '<div class="msg-preview" style="margin:4px 0;">' + esc(enviado.mensagem) + '</div>' +
+          wameAvisoEnvioHtml(enviado.envioAutomatico) +
           '<div class="btn-row">' +
             '<a class="btn btn-primary btn-sm" href="'+esc(enviado.link)+'" target="_blank" rel="noopener">' + ICONS.whatsapp + ' Abrir WhatsApp</a>' +
             '<button class="btn btn-sm" data-copy="'+esc(enviado.link)+'">' + ICONS.copy + ' Copiar link</button>' +
@@ -1324,12 +2346,12 @@
         if (!compraId){ toast("Não encontrei a compra de origem deste cliente.", "erro"); return; }
         btn.disabled = true;
         try {
-          const { mensagem, link } = await api("/campanhas/"+campanhaId+"/enviar", { method:"POST", body:{ clienteId, compraId } });
+          const { mensagem, link, envioAutomatico } = await api("/campanhas/"+campanhaId+"/enviar", { method:"POST", body:{ clienteId, compraId } });
           enviosRecentesPorCampanha[campanhaId] = enviosRecentesPorCampanha[campanhaId] || {};
-          enviosRecentesPorCampanha[campanhaId][clienteId] = { mensagem, link };
+          enviosRecentesPorCampanha[campanhaId][clienteId] = { mensagem, link, envioAutomatico };
           await carregarTudo();
           renderCampanhasConsultar(document.getElementById("main"));
-          toast("Giftback enviado para " + (state.clientes[clienteId]||{}).nome + ".");
+          wameToastEnvio(envioAutomatico, "Giftback", (state.clientes[clienteId]||{}).nome);
         } catch(err){
           btn.disabled = false;
           if (err.status!==401) toast(mensagemErro(err), "erro");
@@ -1573,6 +2595,670 @@
   }
 
   // ---------------------------------------------------------------------
+  // Integração WAME — envio automático + tela Configurações → Conexão
+  // WhatsApp. Quando a empresa tem o número conectado na WAME, os botões de
+  // envio de giftback/indicação mandam a mensagem sozinhos pelo servidor; sem
+  // WAME (ou com falha), seguem abrindo o link wa.me como antes.
+  // ---------------------------------------------------------------------
+  function wameAtiva(){
+    return !!(state.wame && state.wame.configurado && state.wame.status === "conectado");
+  }
+  // Com envio manual, a aba do WhatsApp precisa ser aberta AINDA dentro do
+  // clique (senão o navegador bloqueia o pop-up). Com a WAME ativa não abre
+  // nada — a mensagem sai pelo servidor.
+  function wameAbrirAbaSeManual(){
+    return wameAtiva() ? null : window.open("", "_blank");
+  }
+  // Depois da resposta do servidor: se a WAME enviou, fecha a aba (se houver);
+  // se não, leva a aba (ou uma nova) para o link wa.me de sempre.
+  function wameConcluirEnvio(aba, resp){
+    const auto = resp && resp.envioAutomatico;
+    if (auto && auto.enviado){ if (aba) aba.close(); return; }
+    if (!resp || !resp.link){ if (aba) aba.close(); return; }
+    if (aba) aba.location.href = resp.link;
+    else window.open(resp.link, "_blank", "noopener");
+  }
+  function wameToastEnvio(auto, oque, nome){
+    const quem = nome ? " para " + nome : "";
+    if (!auto) return toast(oque + " enviado" + quem + ".");
+    if (auto.enviado) return toast(oque + " enviado" + quem + " pelo WhatsApp automaticamente.");
+    toast((auto.erro || "O envio automático falhou.") + " Use o botão Abrir WhatsApp para enviar manualmente.", "erro");
+  }
+  function wameAvisoEnvioHtml(auto){
+    if (!auto) return '';
+    if (auto.enviado){
+      return '<div style="font-size:12.5px; font-weight:700; color:var(--accent-dark); margin:6px 0;">✓ Enviado automaticamente pelo WhatsApp</div>';
+    }
+    return '<div style="font-size:12.5px; color:var(--danger); margin:6px 0;">Não foi enviado automaticamente: ' + esc(auto.erro || "erro desconhecido") + ' Envie pelo botão abaixo.</div>';
+  }
+
+  const WAME_STATUS_INFO = {
+    conectado: { label: "Conectado", badge: "b-confirmado" },
+    aguardando_qr: { label: "Aguardando leitura do QR Code", badge: "b-visualizado" },
+    desconectado: { label: "Número desconectado", badge: "b-cancelado" },
+    erro: { label: "Erro de comunicação", badge: "b-expirado" },
+  };
+  const WAME_MSG_STATUS = {
+    pendente: { label: "Enviando", badge: "b-enviado" },
+    enviada: { label: "Enviada", badge: "b-enviado" },
+    entregue: { label: "Entregue", badge: "b-visualizado" },
+    lida: { label: "Lida", badge: "b-confirmado" },
+    falhou: { label: "Falhou", badge: "b-expirado" },
+    recebida: { label: "Recebida", badge: "b-ativo" },
+  };
+  const WAME_ORIGEM = { giftback: "Giftback", indicacao: "Indicação", teste: "Teste", cliente: "Cliente" };
+  let wameQrTimer = null;
+
+  async function renderConfigWame(main){
+    setHeader("Conexão WhatsApp", "Conecte o WhatsApp da sua empresa para enviar giftbacks e convites de indicação automaticamente e acompanhar as respostas dos clientes.");
+    main.innerHTML = '<div class="card empty">Carregando…</div>';
+    try { state.wame = await api("/config/wame?atualizar=1"); }
+    catch(err){
+      if (err.status === 401) return;
+      main.innerHTML = '<div class="card empty">Não foi possível carregar a conexão. ' + esc(mensagemErro(err)) + '</div>';
+      return;
+    }
+    wameRenderizarTela(main);
+  }
+
+  function wameRenderizarTela(main){
+    const c = state.wame || { configurado:false };
+    if (!c.configurado){
+      main.innerHTML = '<div class="section">' + wameCardChaveHtml(false) + '</div>';
+      wameLigarFormChave(main);
+      return;
+    }
+    main.innerHTML = '<div class="section">' + wameCardStatusHtml(c) + '</div>' +
+      '<div class="section">' +
+        '<div class="card" style="max-width:900px;">' +
+          '<div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;">' +
+            '<div class="section-title" style="margin:0;">Mensagens recentes</div>' +
+            '<button class="btn btn-sm" id="btn-wame-msgs-atualizar" type="button">' + ICONS.sync + ' Atualizar</button>' +
+          '</div>' +
+          '<div id="wame-mensagens"><div class="empty" style="padding:14px 6px;">Carregando…</div></div>' +
+        '</div>' +
+      '</div>';
+    wameLigarAcoes(main);
+    wameCarregarMensagens();
+  }
+
+  function wameCardChaveHtml(trocando){
+    return '<div class="card" style="max-width:640px;">' +
+      '<div class="section-title" style="margin-bottom:6px;">' + (trocando ? 'Trocar chave da WAME' : 'Conecte seu WhatsApp pela WAME') + '</div>' +
+      '<p class="muted" style="font-size:13.5px; line-height:1.6; margin:0 0 12px;">' +
+        'As mensagens de giftback e indicação passam a sair sozinhas do número de WhatsApp da sua empresa, e as respostas dos clientes aparecem aqui.' +
+      '</p>' +
+      (trocando ? '' :
+      '<ol style="margin:0 0 14px; padding-left:20px; font-size:13px; line-height:1.8; color:var(--text);">' +
+        '<li>Entre no painel da WAME em <a href="https://dash.wame.api.br/" target="_blank" rel="noopener">dash.wame.api.br</a> e abra (ou crie) a sua instância.</li>' +
+        '<li>Copie a <strong>chave (key)</strong> da instância.</li>' +
+        '<li>Cole a chave abaixo e clique em <strong>Salvar chave</strong>.</li>' +
+        '<li>Depois, clique em <strong>Conectar número</strong> e leia o QR Code com o celular da empresa.</li>' +
+      '</ol>') +
+      '<form id="form-wame-chave" class="form-grid" style="grid-template-columns:1fr;">' +
+        '<div class="field"><label for="wame-chave">Chave da instância WAME *</label>' +
+          '<input type="text" id="wame-chave" name="chave" required autocomplete="off" spellcheck="false" placeholder="Cole aqui a chave copiada do painel da WAME"></div>' +
+        '<div class="btn-row">' +
+          (trocando ? '<button type="button" class="btn btn-sm" id="btn-wame-chave-cancelar">Cancelar</button>' : '') +
+          '<button class="btn btn-primary" type="submit">Salvar chave</button>' +
+        '</div>' +
+      '</form>' +
+    '</div>';
+  }
+
+  function wameLigarFormChave(main){
+    const form = document.getElementById("form-wame-chave");
+    if (!form) return;
+    const cancelar = document.getElementById("btn-wame-chave-cancelar");
+    if (cancelar) cancelar.addEventListener("click", () => wameRenderizarTela(main));
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const btn = form.querySelector('button[type="submit"]');
+      btn.disabled = true; btn.textContent = "Validando na WAME…";
+      try {
+        state.wame = await api("/config/wame/chave", { method:"PUT", body:{ chave: form.chave.value } });
+        toast(state.wame.ultimoErro ? state.wame.ultimoErro : "Chave salva.", state.wame.ultimoErro ? "erro" : undefined);
+        wameRenderizarTela(main);
+      } catch(err){
+        btn.disabled = false; btn.textContent = "Salvar chave";
+        if (err.status!==401) toast(mensagemErro(err, "Não foi possível salvar a chave."), "erro");
+      }
+    });
+  }
+
+  function wameCardStatusHtml(c){
+    const info = WAME_STATUS_INFO[c.status] || { label: c.status, badge: "b-cancelado" };
+    const conectado = c.status === "conectado";
+    let aviso = '';
+    if (!conectado){
+      aviso = '<div class="alert-box" style="display:flex; gap:10px; align-items:flex-start; background:var(--warning-soft); color:var(--warning); border-radius:10px; padding:12px 14px; font-size:12.5px; line-height:1.55; margin-bottom:14px;">' +
+        '<span style="flex:none; margin-top:1px;">' + ICONS.alerta + '</span>' +
+        '<span>' + esc(c.ultimoErro || "O número ainda não está conectado. Clique em \"Conectar número\" e leia o QR Code com o WhatsApp do celular da empresa.") +
+        ' Enquanto isso, os envios continuam pelo link do WhatsApp, como antes.</span>' +
+      '</div>';
+    } else if (!c.webhookConfigurado){
+      aviso = '<div class="alert-box" style="display:flex; gap:10px; align-items:flex-start; background:var(--warning-soft); color:var(--warning); border-radius:10px; padding:12px 14px; font-size:12.5px; line-height:1.55; margin-bottom:14px;">' +
+        '<span style="flex:none; margin-top:1px;">' + ICONS.alerta + '</span>' +
+        '<span>' + esc(c.ultimoErro || "O recebimento de respostas e status ainda não foi configurado na WAME.") + ' Clique em "Trocar chave" e salve a mesma chave de novo para tentar outra vez.</span>' +
+      '</div>';
+    }
+    return aviso +
+      '<div class="card" style="max-width:720px;">' +
+        '<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; margin-bottom:12px;">' +
+          '<div>' +
+            '<div class="section-title" style="margin-bottom:2px;">' + esc(c.telefone ? wameFormatarTelefone(c.telefone) : "Número ainda não conectado") + '</div>' +
+            '<div class="muted" style="font-size:13px;">' + esc(c.nomePerfil || "WhatsApp via WAME") + '</div>' +
+          '</div>' +
+          '<span class="badge ' + info.badge + '">' + esc(info.label) + '</span>' +
+        '</div>' +
+        '<div class="campaign-meta" style="row-gap:8px; margin-bottom:14px;">' +
+          '<span>Chave: <span class="mono">••••' + esc(c.chaveFinal || "") + '</span></span>' +
+          '<span>Envio automático: <strong>' + (conectado ? "Ligado" : "Desligado") + '</strong></span>' +
+          '<span>Recebimento de respostas: <strong>' + (c.webhookConfigurado ? "Ligado" : "Pendente") + '</strong></span>' +
+          (c.ultimoEventoEm ? '<span>Último evento: ' + dataHoraBR(c.ultimoEventoEm) + '</span>' : '') +
+        '</div>' +
+        '<div class="btn-row">' +
+          (conectado
+            ? '<button class="btn btn-primary btn-sm" id="btn-wame-teste" type="button">' + ICONS.whatsapp + ' Enviar mensagem de teste</button>'
+            : '<button class="btn btn-primary btn-sm" id="btn-wame-qr" type="button">' + ICONS.plugue + ' Conectar número (QR Code)</button>') +
+          '<button class="btn btn-sm" id="btn-wame-atualizar" type="button">' + ICONS.sync + ' Atualizar status</button>' +
+          '<button class="btn btn-sm" id="btn-wame-trocar" type="button">Trocar chave</button>' +
+          '<button class="btn btn-sm" id="btn-wame-remover" type="button" style="color:var(--danger);">' + ICONS.x + ' Remover integração</button>' +
+        '</div>' +
+        '<p class="faint" style="font-size:11.5px; line-height:1.5; margin:14px 0 0;">Dica: envie mensagens só para clientes que conhecem a sua empresa. Muitas denúncias de "spam" podem fazer o WhatsApp bloquear o número.</p>' +
+      '</div>';
+  }
+
+  function wameFormatarTelefone(t){
+    const d = String(t||"").replace(/\D/g, "");
+    const m = d.match(/^55(\d{2})(\d{4,5})(\d{4})$/);
+    return m ? "+55 (" + m[1] + ") " + m[2] + "-" + m[3] : (d ? "+" + d : "");
+  }
+
+  function wameLigarAcoes(main){
+    const on = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener("click", fn); };
+    on("btn-wame-qr", () => wameAbrirModalQr(main));
+    on("btn-wame-teste", () => wameAbrirModalTeste());
+    on("btn-wame-msgs-atualizar", () => wameCarregarMensagens());
+    on("btn-wame-atualizar", async (e) => {
+      const botao = e.currentTarget;
+      botao.disabled = true;
+      try {
+        state.wame = await api("/config/wame?atualizar=1");
+        wameRenderizarTela(main);
+        toast("Status atualizado.");
+      } catch(err){
+        botao.disabled = false;
+        if (err.status!==401) toast(mensagemErro(err), "erro");
+      }
+    });
+    on("btn-wame-trocar", () => {
+      main.innerHTML = '<div class="section">' + wameCardChaveHtml(true) + '</div>';
+      wameLigarFormChave(main);
+    });
+    on("btn-wame-remover", () => wameConfirmarRemocao(main));
+  }
+
+  async function wameCarregarMensagens(){
+    const box = document.getElementById("wame-mensagens");
+    if (!box) return;
+    let lista;
+    try { lista = await api("/config/wame/mensagens?limite=50"); }
+    catch(err){
+      if (err.status === 401) return;
+      box.innerHTML = '<div class="empty" style="padding:14px 6px;">Não foi possível carregar as mensagens.</div>';
+      return;
+    }
+    if (!lista.length){
+      box.innerHTML = '<div class="empty" style="padding:14px 6px;">Nenhuma mensagem ainda. Os giftbacks e convites enviados e as respostas dos clientes vão aparecer aqui.</div>';
+      return;
+    }
+    const linhas = lista.map(m => {
+      const st = WAME_MSG_STATUS[m.status] || { label: m.status, badge: "b-cancelado" };
+      const entrada = m.direcao === "entrada";
+      const texto = String(m.texto || "");
+      const curto = texto.length > 140 ? texto.slice(0, 140) + "…" : texto;
+      return '<tr>' +
+        '<td class="faint" style="white-space:nowrap;">' + dataHoraBR(m.criadoEm) + '</td>' +
+        '<td>' + (entrada ? '<strong>Recebida</strong>' : 'Enviada') + '<div class="faint" style="font-size:11.5px;">' + esc(WAME_ORIGEM[m.origem] || "") + '</div></td>' +
+        '<td><div>' + esc(m.nomeContato || "") + '</div><div class="faint mono" style="font-size:12px;">' + esc(wameFormatarTelefone(m.telefone)) + '</div></td>' +
+        '<td style="max-width:360px; white-space:pre-wrap; word-break:break-word;" title="' + esc(texto) + '">' + esc(curto) +
+          (m.erro ? '<div style="color:var(--danger); font-size:11.5px; margin-top:3px;">' + esc(m.erro) + '</div>' : '') + '</td>' +
+        '<td><span class="badge ' + st.badge + '">' + esc(st.label) + '</span></td>' +
+      '</tr>';
+    }).join("");
+    box.innerHTML = '<div class="table-wrap"><table><thead><tr><th>Quando</th><th>Tipo</th><th>Contato</th><th>Mensagem</th><th>Status</th></tr></thead><tbody>' + linhas + '</tbody></table></div>';
+  }
+
+  // QR Code: mostra a imagem, renova a cada 30s (o QR do WhatsApp expira) e
+  // confere a cada 3s se o número já conectou — fecha sozinho quando conectar.
+  function wameAbrirModalQr(main){
+    const overlay = abrirModal(
+      '<div class="section-title" style="margin-bottom:6px;">Conectar o WhatsApp da empresa</div>' +
+      '<ol style="margin:0 0 12px; padding-left:20px; font-size:13px; line-height:1.7;">' +
+        '<li>Abra o WhatsApp no celular da empresa.</li>' +
+        '<li>Toque em <strong>Configurações</strong> (ou nos três pontinhos) → <strong>Aparelhos conectados</strong> → <strong>Conectar um aparelho</strong>.</li>' +
+        '<li>Aponte a câmera para o QR Code abaixo.</li>' +
+      '</ol>' +
+      '<div id="wame-qr-box" style="display:flex; justify-content:center; align-items:center; min-height:260px; background:#fff; border-radius:12px; border:1px solid var(--border, #e5e5e5);">Gerando QR Code…</div>' +
+      '<p class="faint" style="font-size:11.5px; text-align:center; margin:8px 0 0;">O QR Code é renovado automaticamente. Esta janela fecha sozinha quando o número conectar.</p>' +
+      '<div class="btn-row" style="justify-content:flex-end; margin-top:12px;"><button type="button" class="btn btn-sm" id="btn-wame-qr-fechar">Fechar</button></div>'
+    );
+    let ultimaGeracao = 0;
+    let ativo = true;
+    const parar = () => { ativo = false; clearInterval(wameQrTimer); wameQrTimer = null; };
+    overlay.querySelector("#btn-wame-qr-fechar").addEventListener("click", () => { parar(); fecharModal(); });
+    const inicio = Date.now();
+
+    async function gerar(){
+      ultimaGeracao = Date.now();
+      const box = overlay.querySelector("#wame-qr-box");
+      try {
+        const r = await api("/config/wame/qrcode", { method:"POST" });
+        if (!ativo) return;
+        if (r.conectado) return concluir();
+        box.innerHTML = '<img src="' + esc(r.imagem) + '" alt="QR Code de conexão do WhatsApp" style="width:240px; height:240px; image-rendering:pixelated;">';
+      } catch(err){
+        if (!ativo || err.status === 401) return;
+        box.textContent = mensagemErro(err, "Não foi possível gerar o QR Code.");
+      }
+    }
+    async function verificar(){
+      if (!ativo) return;
+      if (!document.getElementById("wame-qr-box")) return parar(); // modal fechado por fora (Esc/clique fora)
+      if (Date.now() - inicio > 3 * 60 * 1000){
+        parar();
+        overlay.querySelector("#wame-qr-box").textContent = "Tempo esgotado. Feche e clique em \"Conectar número\" de novo.";
+        return;
+      }
+      try {
+        const s = await api("/config/wame?atualizar=1");
+        if (s.status === "conectado"){ state.wame = s; return concluir(); }
+      } catch(err){ /* tenta de novo no próximo ciclo */ }
+      if (Date.now() - ultimaGeracao > 30000) gerar();
+    }
+    async function concluir(){
+      parar();
+      fecharModal();
+      try { state.wame = await api("/config/wame"); } catch(e){}
+      toast("WhatsApp conectado! As mensagens agora saem automaticamente.");
+      wameRenderizarTela(main);
+    }
+    gerar();
+    clearInterval(wameQrTimer);
+    wameQrTimer = setInterval(verificar, 3000);
+  }
+
+  function wameAbrirModalTeste(){
+    const overlay = abrirModal(
+      '<div class="section-title" style="margin-bottom:4px;">Enviar mensagem de teste</div>' +
+      '<p class="muted" style="font-size:12.5px; margin:0 0 12px; line-height:1.5;">A mensagem sai do número conectado. Use o seu próprio celular para conferir.</p>' +
+      '<form id="form-wame-teste" class="form-grid" style="grid-template-columns:1fr;">' +
+        '<div class="field"><label for="wame-teste-telefone">Número de destino (com DDD) *</label><input type="tel" id="wame-teste-telefone" name="telefone" required placeholder="(11) 90000-0000"></div>' +
+        '<div class="field"><label for="wame-teste-texto">Mensagem *</label><textarea id="wame-teste-texto" name="texto" rows="3" required>Olá! Esta é uma mensagem de teste da integração do WhatsApp.</textarea></div>' +
+        '<div class="btn-row" style="justify-content:flex-end;">' +
+          '<button type="button" class="btn btn-sm" id="btn-wame-teste-fechar">Fechar</button>' +
+          '<button class="btn btn-primary btn-sm" type="submit">' + ICONS.whatsapp + ' Enviar teste</button>' +
+        '</div>' +
+      '</form>'
+    );
+    overlay.querySelector("#btn-wame-teste-fechar").addEventListener("click", fecharModal);
+    const form = overlay.querySelector("#form-wame-teste");
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const btn = form.querySelector('button[type="submit"]');
+      btn.disabled = true;
+      try {
+        await api("/config/wame/teste", { method:"POST", body:{ telefone: form.telefone.value, texto: form.texto.value } });
+        fecharModal();
+        toast("Mensagem de teste enviada.");
+        wameCarregarMensagens();
+      } catch(err){
+        btn.disabled = false;
+        if (err.status!==401) toast(mensagemErro(err, "Não foi possível enviar o teste."), "erro");
+      }
+    });
+  }
+
+  function wameConfirmarRemocao(main){
+    abrirModal(
+      '<div class="section-title" style="margin-bottom:12px;">Remover integração com a WAME</div>' +
+      '<p class="muted" style="font-size:13.5px; line-height:1.55;">A plataforma para de enviar mensagens automaticamente e de receber as respostas — os envios voltam a ser pelo link do WhatsApp. O número continua conectado na sua instância da WAME; nada é apagado lá.</p>' +
+      '<div class="btn-row" style="justify-content:flex-end; margin-top:14px;">' +
+        '<button type="button" class="btn btn-sm" id="btn-wame-remover-cancelar">Cancelar</button>' +
+        '<button type="button" class="btn btn-primary btn-sm" id="btn-wame-remover-confirmar" style="background:var(--danger);">Remover</button>' +
+      '</div>'
+    );
+    document.getElementById("btn-wame-remover-cancelar").addEventListener("click", fecharModal);
+    document.getElementById("btn-wame-remover-confirmar").addEventListener("click", async (e) => {
+      e.target.disabled = true;
+      try {
+        state.wame = await api("/config/wame", { method:"DELETE" });
+        fecharModal();
+        toast("Integração removida.");
+        wameRenderizarTela(main);
+      } catch(err){
+        e.target.disabled = false;
+        if (err.status!==401) toast(mensagemErro(err, "Não foi possível remover."), "erro");
+      }
+    });
+  }
+
+  // ---------------------------------------------------------------------
+  // Página: Configurações → Conexão WhatsApp (Meta Cloud API / Embedded Signup)
+  // ---------------------------------------------------------------------
+  // Estado local: a conexão em si (espelho do GET /config/whatsapp/connection)
+  // e o carregamento único do SDK oficial da Meta (facebook.net/.../sdk.js),
+  // carregado sob demanda (só quando esta tela é aberta), nunca em toda
+  // página — é um script de terceiro, então só entra quando precisa.
+  let waConexaoCache = null;
+  let waSdkPromise = null;
+
+  function waCarregarSdk(){
+    if (waSdkPromise) return waSdkPromise;
+    waSdkPromise = new Promise((resolve, reject) => {
+      if (window.FB) { resolve(); return; }
+      if (document.getElementById("facebook-jssdk")) {
+        // Script já está sendo carregado por uma chamada anterior — espera
+        // window.FB aparecer em vez de duplicar a tag <script>.
+        const espera = setInterval(() => { if (window.FB) { clearInterval(espera); resolve(); } }, 100);
+        setTimeout(() => { clearInterval(espera); if (!window.FB) reject(new Error("Tempo esgotado carregando o script da Meta.")); }, 15000);
+        return;
+      }
+      const script = document.createElement("script");
+      script.id = "facebook-jssdk";
+      script.src = "https://connect.facebook.net/pt_BR/sdk.js";
+      script.async = true; script.defer = true; script.crossOrigin = "anonymous";
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error("Não foi possível carregar o script oficial da Meta — verifique sua conexão ou bloqueadores de script/anúncios."));
+      document.body.appendChild(script);
+    });
+    return waSdkPromise;
+  }
+
+  const WA_STATUS_INFO = {
+    conectado: { label: "Conectado", badge: "b-confirmado" },
+    conectado_com_pendencia: { label: "Conectado, com pendência", badge: "b-visualizado" },
+    token_expirado: { label: "Autorização expirada", badge: "b-expirado" },
+    numero_restrito: { label: "Número restrito", badge: "b-expirado" },
+    erro: { label: "Erro de conexão", badge: "b-expirado" },
+    desconectado: { label: "Desconectado", badge: "b-cancelado" },
+  };
+  function waStatusInfo(status){ return WA_STATUS_INFO[status] || { label: status, badge: "b-cancelado" }; }
+
+  async function renderConfigWhatsapp(main){
+    setHeader("Conexão WhatsApp", "Conecte o número oficial do WhatsApp Business da sua empresa à plataforma, usando a integração oficial da Meta (WhatsApp Business Platform / Cloud API).");
+    main.innerHTML = '<div class="card empty">Carregando…</div>';
+    try { waConexaoCache = await api("/config/whatsapp/connection"); }
+    catch(err){
+      if (err.status === 401) return;
+      main.innerHTML = '<div class="card empty">Não foi possível carregar a conexão.</div>';
+      return;
+    }
+    waRenderizarTela(main);
+  }
+
+  function waRenderizarTela(main){
+    const c = waConexaoCache || { status: "nao_conectado" };
+    if (c.status === "nao_conectado" || c.status === "desconectado"){
+      main.innerHTML = waTelaNaoConectadaHtml(c.status === "desconectado");
+      const btn = document.getElementById("btn-wa-conectar");
+      if (btn) btn.addEventListener("click", () => waIniciarConexao(main, btn));
+      return;
+    }
+    main.innerHTML = waTelaConectadaHtml(c);
+    waLigarAcoesConectado(main);
+  }
+
+  function waTelaNaoConectadaHtml(foiDesconectado){
+    return '<div class="section">' +
+      '<div class="card" style="max-width:640px;">' +
+        (foiDesconectado ? '<div class="faint" style="margin-bottom:10px; font-size:12.5px;">A integração foi desconectada. Seu número, WABA e Business Portfolio continuam intactos na Meta — você pode reconectar quando quiser.</div>' : '') +
+        '<div class="section-title" style="margin-bottom:6px;">Conecte seu WhatsApp</div>' +
+        '<p class="muted" style="font-size:13.5px; line-height:1.6; margin:0 0 14px;">' +
+          'A conexão usa a integração oficial da Meta — WhatsApp Business Platform (Cloud API) via Embedded Signup — para que sua empresa envie e receba mensagens diretamente pela plataforma, com o número e as credenciais da sua própria conta Meta Business.' +
+        '</p>' +
+        '<div class="faint" style="font-size:12px; font-weight:700; margin-bottom:6px;">Você vai precisar de:</div>' +
+        '<ul style="margin:0 0 14px; padding-left:20px; font-size:13px; line-height:1.8; color:var(--text);">' +
+          '<li>Acesso à conta Meta responsável pela sua empresa (quem administra o Business Portfolio).</li>' +
+          '<li>Permissão de administrador nesse Business Portfolio.</li>' +
+          '<li>Um número de telefone elegível para o WhatsApp Business Platform (não pode estar em uso em outra WABA).</li>' +
+          '<li>Capacidade de receber SMS ou ligação nesse número, caso a Meta peça verificação.</li>' +
+        '</ul>' +
+        '<div class="alert-box" style="display:flex; gap:10px; align-items:flex-start; background:var(--warning-soft); color:var(--warning); border-radius:10px; padding:12px 14px; font-size:12.5px; line-height:1.55; margin-bottom:16px;">' +
+          '<span style="flex:none; margin-top:1px;">' + ICONS.alerta + '</span>' +
+          '<span>Se esse número já é usado no aplicativo WhatsApp Business (app comum), a própria Meta vai indicar, durante a conexão, o fluxo oficial de <strong>coexistência</strong> ou <strong>migração</strong> — siga a orientação exibida na janela da Meta, conforme a elegibilidade do seu número.</span>' +
+        '</div>' +
+        '<button class="btn btn-primary" id="btn-wa-conectar" type="button">' + ICONS.whatsapp + ' Conectar com a Meta</button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function waMascaraHtml(v){ return '<span class="mono faint" style="font-size:12px;">'+esc(v||"—")+'</span>'; }
+
+  function waTelaConectadaHtml(c){
+    const info = waStatusInfo(c.status);
+    const pendente = c.status !== "conectado";
+    const avisoTopo = pendente
+      ? '<div class="alert-box" style="display:flex; gap:10px; align-items:flex-start; background:var(--danger-soft); color:var(--danger); border-radius:10px; padding:12px 14px; font-size:12.5px; line-height:1.55; margin-bottom:16px;">' +
+          '<span style="flex:none; margin-top:1px;">' + ICONS.alerta + '</span>' +
+          '<span>' + esc(waMensagemPendencia(c)) + '</span>' +
+        '</div>'
+      : '';
+    return '<div class="section">' +
+      avisoTopo +
+      '<div class="card" style="max-width:720px;">' +
+        '<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; margin-bottom:14px;">' +
+          '<div>' +
+            '<div class="section-title" style="margin-bottom:2px;">' + esc(c.displayPhoneNumber || "Número conectado") + '</div>' +
+            '<div class="muted" style="font-size:13px;">' + esc(c.verifiedName || "—") + '</div>' +
+          '</div>' +
+          '<span class="badge ' + info.badge + '">' + esc(info.label) + '</span>' +
+        '</div>' +
+        '<div class="campaign-meta" style="row-gap:10px; margin-bottom:4px;">' +
+          '<span>Status do número: <strong>' + esc(c.numberStatus || "—") + '</strong></span>' +
+          '<span>Qualidade: <strong>' + esc(c.qualityRating || "—") + '</strong></span>' +
+          '<span>Verificação: <strong>' + esc(c.codeVerificationStatus || "—") + '</strong></span>' +
+        '</div>' +
+        '<div class="campaign-meta" style="row-gap:10px; margin-bottom:14px;">' +
+          '<span>Webhooks: <strong>' + esc(c.webhookStatus === "inscrito" ? "Inscrito" : (c.webhookStatus === "erro" ? "Com erro" : "Pendente")) + '</strong></span>' +
+          '<span>Envio de mensagens: <strong>' + (c.status === "conectado" ? "Habilitado" : "Indisponível") + '</strong></span>' +
+        '</div>' +
+        '<table style="width:100%; font-size:13px; margin-bottom:16px;"><tbody>' +
+          '<tr><td class="faint" style="padding:5px 10px 5px 0;">WABA ID</td><td>' + waMascaraHtml(c.wabaId) + '</td></tr>' +
+          '<tr><td class="faint" style="padding:5px 10px 5px 0;">Phone Number ID</td><td>' + waMascaraHtml(c.phoneNumberId) + '</td></tr>' +
+          '<tr><td class="faint" style="padding:5px 10px 5px 0;">Business ID</td><td>' + waMascaraHtml(c.metaBusinessId) + '</td></tr>' +
+          '<tr><td class="faint" style="padding:5px 10px 5px 0;">Conectado em</td><td>' + dataHoraBR(c.connectedAt) + '</td></tr>' +
+          '<tr><td class="faint" style="padding:5px 10px 5px 0;">Última sincronização</td><td>' + dataHoraBR(c.lastSyncedAt) + '</td></tr>' +
+        '</tbody></table>' +
+        '<div class="btn-row">' +
+          '<button class="btn btn-sm" id="btn-wa-sync" type="button">' + ICONS.sync + ' Sincronizar status</button>' +
+          '<button class="btn btn-sm" id="btn-wa-teste" type="button" ' + (c.status!=="conectado"?'disabled title="Disponível quando a conexão estiver saudável"':'') + '>' + ICONS.whatsapp + ' Enviar mensagem de teste</button>' +
+          '<button class="btn btn-sm" id="btn-wa-reconectar" type="button">' + ICONS.plugue + ' Reconectar</button>' +
+          '<button class="btn btn-sm" id="btn-wa-desconectar" type="button" style="color:var(--danger);">' + ICONS.x + ' Desconectar</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function waMensagemPendencia(c){
+    if (c.lastErrorMessage) return c.lastErrorMessage;
+    if (c.status === "conectado_com_pendencia") return "A conexão foi concluída, mas há uma pendência (ex.: inscrição de webhooks) — tente \"Sincronizar status\" ou \"Reconectar\".";
+    if (c.status === "token_expirado") return "A autorização com a Meta expirou ou foi revogada. Clique em \"Reconectar\".";
+    if (c.status === "numero_restrito") return "Este número está restrito pela Meta. Verifique o Business Manager.";
+    return "Há um problema com esta conexão. Tente \"Sincronizar status\" ou \"Reconectar\".";
+  }
+
+  function waLigarAcoesConectado(main){
+    const btnSync = document.getElementById("btn-wa-sync");
+    if (btnSync) btnSync.addEventListener("click", async () => {
+      btnSync.disabled = true;
+      try {
+        waConexaoCache = await api("/config/whatsapp/connection/sync", { method:"POST" });
+        waRenderizarTela(main);
+        toast("Status sincronizado com a Meta.");
+      } catch(err){
+        btnSync.disabled = false;
+        if (err.status!==401) toast(mensagemErro(err, "Não foi possível sincronizar."), "erro");
+      }
+    });
+    const btnReconectar = document.getElementById("btn-wa-reconectar");
+    if (btnReconectar) btnReconectar.addEventListener("click", () => waIniciarConexao(main, btnReconectar));
+    const btnTeste = document.getElementById("btn-wa-teste");
+    if (btnTeste) btnTeste.addEventListener("click", () => waAbrirModalTeste());
+    const btnDesconectar = document.getElementById("btn-wa-desconectar");
+    if (btnDesconectar) btnDesconectar.addEventListener("click", () => waConfirmarDesconexao(main));
+  }
+
+  function waConfirmarDesconexao(main){
+    abrirModal(
+      '<div class="section-title" style="margin-bottom:12px;">Desconectar WhatsApp</div>' +
+      '<p class="muted" style="font-size:13.5px; line-height:1.55;">Tem certeza que deseja desconectar? A plataforma para de enviar/receber mensagens por este número, mas <strong>nada é apagado na sua conta Meta</strong> — o Business Portfolio, a WABA e o número continuam intactos, e você pode reconectar quando quiser.</p>' +
+      '<div class="btn-row" style="justify-content:flex-end; margin-top:14px;">' +
+        '<button type="button" class="btn btn-sm" id="btn-wa-desconectar-cancelar">Cancelar</button>' +
+        '<button type="button" class="btn btn-primary btn-sm" id="btn-wa-desconectar-confirmar" style="background:var(--danger);">Desconectar</button>' +
+      '</div>'
+    );
+    document.getElementById("btn-wa-desconectar-cancelar").addEventListener("click", fecharModal);
+    document.getElementById("btn-wa-desconectar-confirmar").addEventListener("click", async (e) => {
+      e.target.disabled = true;
+      try {
+        waConexaoCache = await api("/config/whatsapp/connection", { method:"DELETE" });
+        fecharModal();
+        toast("WhatsApp desconectado.");
+        waRenderizarTela(main);
+      } catch(err){
+        e.target.disabled = false;
+        if (err.status!==401) toast(mensagemErro(err, "Não foi possível desconectar."), "erro");
+      }
+    });
+  }
+
+  function waAbrirModalTeste(){
+    const overlay = abrirModal(
+      '<div class="section-title" style="margin-bottom:4px;">Enviar mensagem de teste</div>' +
+      '<p class="muted" style="font-size:12.5px; margin:0 0 12px; line-height:1.5;">Mensagem iniciada pela empresa fora da janela de atendimento exige um template já aprovado pela Meta para esta conexão.</p>' +
+      '<form id="form-wa-teste" class="form-grid" style="grid-template-columns:1fr;">' +
+        '<div class="field"><label>Número de destino *</label><input type="tel" name="destinatario" required placeholder="+55 11 90000-0000"></div>' +
+        '<div class="field"><label>Nome do template aprovado *</label><input type="text" name="templateNome" required placeholder="Ex.: hello_world"></div>' +
+        '<div class="field"><label>Idioma do template</label><input type="text" name="templateIdioma" placeholder="pt_BR" value="pt_BR"></div>' +
+        '<div id="wa-teste-resultado"></div>' +
+        '<div class="btn-row" style="justify-content:flex-end;">' +
+          '<button type="button" class="btn btn-sm" id="btn-wa-teste-fechar">Fechar</button>' +
+          '<button class="btn btn-primary btn-sm" type="submit">' + ICONS.whatsapp + ' Enviar teste</button>' +
+        '</div>' +
+      '</form>'
+    );
+    document.getElementById("btn-wa-teste-fechar").addEventListener("click", fecharModal);
+    const form = overlay.querySelector("#form-wa-teste");
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const fd = new FormData(form);
+      const resultadoEl = overlay.querySelector("#wa-teste-resultado");
+      const btnSubmit = form.querySelector('button[type="submit"]');
+      btnSubmit.disabled = true;
+      try {
+        const resp = await api("/config/whatsapp/test-message", { method:"POST", body:{
+          destinatario: fd.get("destinatario"),
+          templateNome: fd.get("templateNome"),
+          templateIdioma: fd.get("templateIdioma") || "pt_BR",
+        }});
+        resultadoEl.innerHTML = '<div class="alert-box" style="background:var(--success-soft); color:var(--success); border-radius:8px; padding:10px 12px; font-size:12.5px; line-height:1.5;">' +
+          'Enviado. Status: <strong>' + esc(resp.status) + '</strong>' + (resp.wamid ? '<br>wamid: <span class="mono">' + esc(resp.wamid) + '</span>' : '') +
+          '<br><span class="faint">O status (entregue/lido) é atualizado automaticamente quando a Meta confirmar, via webhook.</span>' +
+        '</div>';
+        toast("Mensagem de teste enviada.");
+      } catch(err){
+        resultadoEl.innerHTML = '<div class="alert-box" style="background:var(--danger-soft); color:var(--danger); border-radius:8px; padding:10px 12px; font-size:12.5px;">' + esc(mensagemErro(err, "Não foi possível enviar a mensagem de teste.")) + '</div>';
+        if (err.status!==401) toast(mensagemErro(err, "Falha ao enviar mensagem de teste."), "erro");
+      } finally {
+        btnSubmit.disabled = false;
+      }
+    });
+  }
+
+  // Fluxo do Embedded Signup — usado tanto pelo botão "Conectar com a Meta"
+  // (não conectado) quanto por "Reconectar" (já conectado).
+  async function waIniciarConexao(main, botao){
+    if (botao){ botao.disabled = true; botao.dataset.textoOriginal = botao.innerHTML; botao.innerHTML = "Iniciando…"; }
+    let embedCfg, nonce;
+    try {
+      embedCfg = await api("/config/whatsapp/embed-config");
+      const respNonce = await api("/config/whatsapp/connection/iniciar", { method:"POST" });
+      nonce = respNonce.nonce;
+      await waCarregarSdk();
+    } catch(err){
+      if (botao){ botao.disabled = false; botao.innerHTML = botao.dataset.textoOriginal; }
+      if (err.status!==401) toast(mensagemErro(err, "Não foi possível iniciar a conexão com a Meta."), "erro");
+      return;
+    }
+
+    if (botao) botao.innerHTML = "Aguardando conclusão na janela da Meta…";
+
+    // O evento FINISH/CANCEL do Embedded Signup chega por postMessage da
+    // janela popup — captura aqui os identificadores (waba_id,
+    // phone_number_id, business_id) que o FB.login sozinho não devolve (ele
+    // só devolve o `code`). Ouvinte é removido assim que o fluxo termina.
+    let dadosSignup = null;
+    function onMessage(event){
+      if (!event.origin || !event.origin.endsWith("facebook.com")) return;
+      let data;
+      try { data = JSON.parse(event.data); } catch(e){ return; }
+      if (data && data.type === "WA_EMBEDDED_SIGNUP") dadosSignup = data;
+    }
+    window.addEventListener("message", onMessage);
+
+    let response;
+    try {
+      window.FB.init({ appId: embedCfg.appId, autoLogAppEvents: true, xfbml: true, version: embedCfg.graphApiVersion });
+      response = await new Promise((resolve, reject) => {
+        try {
+          window.FB.login((r) => resolve(r), {
+            config_id: embedCfg.configId,
+            response_type: "code",
+            override_default_response_type: true,
+            extras: { setup: {}, sessionInfoVersion: "3" },
+          });
+        } catch(e){ reject(e); }
+      });
+    } catch(err){
+      window.removeEventListener("message", onMessage);
+      if (botao){ botao.disabled = false; botao.innerHTML = botao.dataset.textoOriginal; }
+      toast("Não foi possível abrir a janela de conexão da Meta — verifique se seu navegador está bloqueando pop-ups.", "erro");
+      return;
+    }
+    // Dá uma folga curta pro postMessage do popup chegar — ele normalmente
+    // chega antes ou junto do callback do FB.login, mas não é garantido.
+    if (!dadosSignup) await new Promise((r) => setTimeout(r, 700));
+    window.removeEventListener("message", onMessage);
+
+    const cancelado = dadosSignup && dadosSignup.event === "CANCEL";
+    const erroDoPopup = cancelado && dadosSignup.data && dadosSignup.data.error_message;
+    const code = response && response.authResponse ? response.authResponse.code : null;
+
+    if (!code){
+      if (botao){ botao.disabled = false; botao.innerHTML = botao.dataset.textoOriginal; }
+      if (erroDoPopup) toast("A Meta retornou um erro: " + dadosSignup.data.error_message, "erro");
+      else toast("Conexão cancelada.");
+      return;
+    }
+
+    const finishData = dadosSignup && dadosSignup.event === "FINISH" ? dadosSignup.data : {};
+    if (botao) botao.innerHTML = "Concluindo conexão…";
+    try {
+      waConexaoCache = await api("/config/whatsapp/connection/complete", { method:"POST", body:{
+        code, nonce,
+        wabaId: finishData.waba_id, phoneNumberId: finishData.phone_number_id, businessId: finishData.business_id,
+      }});
+      toast("WhatsApp conectado com sucesso.");
+      waRenderizarTela(main);
+    } catch(err){
+      if (botao){ botao.disabled = false; botao.innerHTML = botao.dataset.textoOriginal; }
+      if (err.status!==401) toast(mensagemErro(err, "Não foi possível concluir a conexão."), "erro");
+    }
+  }
+
+  // ---------------------------------------------------------------------
   // Página: Indicações → Criar Indicação
   // ---------------------------------------------------------------------
   function renderIndicacoesCriar(main){
@@ -1593,7 +3279,7 @@
               '<div class="grid grid-split msg-editor-grid">' +
                 '<div class="msg-editor-col">' +
                   '<div class="msg-toolbar">' + botaoEmojiHtml("mensagem") + '</div>' +
-                  '<textarea name="mensagem" required placeholder="Oi {{nome_cliente}}! ...">Oi {{nome_cliente}}! Indique {{meta_indicacoes}} amigos e ganhe: {{premio_indicador}} 🎁. Compartilhe seu link: {{link_indicacao}}</textarea>' +
+                  '<textarea name="mensagem" required placeholder="Oi {{nome_cliente}}! ...">Oi {{nome_cliente}}! Indique {{meta_indicacoes}} amigos e ganhe: {{premio_indicador}} 🎁. Toque no link, confirme sua participação com os 4 últimos números do seu WhatsApp e comece a indicar: {{link_indicacao}}</textarea>' +
                   pickerEmojiHtml("mensagem") +
                   '<div class="var-chips">' + ['nome_cliente','meta_indicacoes','premio_indicador','premio_indicado','link_indicacao'].map(v=>'<span class="var-chip" data-var="'+v+'" data-target="mensagem">{{'+v+'}}</span>').join("") + '</div>' +
                 '</div>' +
@@ -1624,21 +3310,27 @@
       const premioIndicador = formIndicacao.querySelector('textarea[name="premioIndicador"]').value;
       const premioIndicado = formIndicacao.querySelector('textarea[name="premioIndicado"]').value;
       const condicoes = formIndicacao.querySelector('textarea[name="condicoes"]').value;
-      const vars = {
+      const varsComuns = {
         nome_cliente: "Marina",
         nome_indicador: "Marina",
         meta_indicacoes: meta || "3",
         premio_indicador: premioIndicador || "R$ 100 de desconto em qualquer procedimento",
         premio_indicado: premioIndicado || "10% de desconto na primeira visita",
         condicoes: condicoes || "válido por cliente, um prêmio por meta atingida",
-        link_indicacao: linkPublico("indicacao/abc123"),
       };
+      // Os dois links de exemplo são DIFERENTES de propósito: o convite vai
+      // pro próprio indicador (link sem sufixo — reaberto depois de
+      // confirmar, mostra o status dele) e o encaminhado vai pros amigos
+      // dele (link com sufixo /amigo — mostra o formulário do amigo). Ver
+      // linkParaAmigo em backend/src/routes/public.js.
+      const varsConvite = Object.assign({}, varsComuns, { link_indicacao: linkPublico("indicacao/abc123") });
+      const varsEncaminhar = Object.assign({}, varsComuns, { link_indicacao: linkPublico("indicacao/abc123/amigo") });
       const elMsg = main.querySelector('[data-wa-preview="mensagem"]');
       const elEnc = main.querySelector('[data-wa-preview="textoEncaminhar"]');
       const taMsg = formIndicacao.querySelector('textarea[name="mensagem"]');
       const taEnc = formIndicacao.querySelector('textarea[name="textoEncaminhar"]');
-      if (elMsg) elMsg.innerHTML = textoPreviewBubbleHtml(aplicarVarsPreview(taMsg.value, vars));
-      if (elEnc) elEnc.innerHTML = textoPreviewBubbleHtml(aplicarVarsPreview(taEnc.value, vars));
+      if (elMsg) elMsg.innerHTML = textoPreviewBubbleHtml(aplicarVarsPreview(taMsg.value, varsConvite));
+      if (elEnc) elEnc.innerHTML = textoPreviewBubbleHtml(aplicarVarsPreview(taEnc.value, varsEncaminhar));
     }
 
     ['meta','premioIndicador','premioIndicado','condicoes'].forEach(n => {
@@ -1692,44 +3384,62 @@
   // ---------------------------------------------------------------------
   // Página: Indicações → Consultar Indicação
   // ---------------------------------------------------------------------
-  let indicacaoCampanhasExpandidas = new Set();
-  let enviosRecentesIndicacao = {}; // { campanhaId: { clienteId: {mensagem, link} } }
-  let enviadasPorCampanhaIndicacao = {}; // cache local: { campanhaId: [ {clienteIndicadorId, mensagem, linkWhatsapp, ...} ] }, vindo de GET /indicacoes/campanhas/:id/enviadas
+  // cache local: { campanhaId: [ {clienteIndicadorId, mensagem, linkWhatsapp,
+  // indicadorConfirmadoEm, ...} ] }, vindo de GET /indicacoes/campanhas/:id/enviadas.
+  // Compartilhado entre a lista de campanhas (pra mostrar os contadores de
+  // enviados/confirmados de cada card) e a tela de Enviar mensagens.
+  let enviadasPorCampanhaIndicacao = {};
 
-  function renderIndicacoesConsultar(main){
+  async function renderIndicacoesConsultar(main){
     setHeader("Consultar Indicação", "Cada campanha de indicação gera um link pessoal por cliente — ele encaminha esse link aos amigos, que confirmam a indicação e viram clientes.",
       '<button class="btn header-btn btn-sm" id="btn-ir-criar-indicacao">' + ICONS.plus + ' Criar indicação</button>');
+    // Liga o clique já aqui, antes de qualquer await abaixo — mesmo motivo
+    // do comentário em ligarBtnMasterVoltar: setHeader() recria o botão a
+    // cada render, então o listener tem que ser religado toda vez, e nunca
+    // depois de um await (senão o botão fica visível sem funcionar por um
+    // tempo, com respostas de API mais lentas).
+    document.getElementById("btn-ir-criar-indicacao").addEventListener("click", ()=>ir("indicacoes-criar"));
+
     const lista = Object.values(state.campanhasIndicacao);
+    if (!lista.length){
+      main.innerHTML =
+        '<div class="section">' +
+          '<div class="section-head"><div class="section-title">Campanhas de indicação cadastradas</div></div>' +
+          '<div class="card empty">Nenhuma campanha de indicação cadastrada ainda.</div>' +
+        '</div>';
+      return;
+    }
+    main.innerHTML = '<div class="card empty">Carregando…</div>';
+    await Promise.all(lista.map(async c => {
+      if (!enviadasPorCampanhaIndicacao[c.id]){
+        try { enviadasPorCampanhaIndicacao[c.id] = await api("/indicacoes/campanhas/"+c.id+"/enviadas"); }
+        catch(err){ enviadasPorCampanhaIndicacao[c.id] = []; }
+      }
+    }));
     main.innerHTML =
       '<div class="section">' +
         '<div class="section-head"><div class="section-title">Campanhas de indicação cadastradas</div></div>' +
         '<div class="grid" style="grid-template-columns:repeat(auto-fill, minmax(280px,1fr));">' +
-          (lista.length ? lista.map(campanhaIndicacaoCardHtml).join("") : '<div class="card empty">Nenhuma campanha de indicação cadastrada ainda.</div>') +
+          lista.map(campanhaIndicacaoCardHtml).join("") +
         '</div>' +
       '</div>';
-
-    document.getElementById("btn-ir-criar-indicacao").addEventListener("click", ()=>ir("indicacoes-criar"));
-    main.querySelectorAll("[data-toggle-indicacao]").forEach(btn => {
-      btn.addEventListener("click", async ()=>{
-        const id = btn.getAttribute("data-toggle-indicacao");
-        if (indicacaoCampanhasExpandidas.has(id)){
-          indicacaoCampanhasExpandidas.delete(id);
-        } else {
-          indicacaoCampanhasExpandidas.add(id);
-          if (!enviadasPorCampanhaIndicacao[id]){
-            try { enviadasPorCampanhaIndicacao[id] = await api("/indicacoes/campanhas/"+id+"/enviadas"); }
-            catch(err){ if (err.status!==401){ toast(mensagemErro(err), "erro"); enviadasPorCampanhaIndicacao[id] = []; } }
-          }
-        }
-        renderIndicacoesConsultar(main);
-      });
+    main.querySelectorAll("[data-ir-enviar-indicacao]").forEach(btn=>{
+      btn.addEventListener("click", ()=> ir("indicacoes-enviar/"+btn.getAttribute("data-ir-enviar-indicacao")));
     });
-    ligarAcoesEnviosIndicacao(main);
   }
 
+  // Card resumido de cada campanha, com os contadores de convites
+  // enviados/confirmados — clareza imediata do resultado sem precisar abrir
+  // a campanha. O botão leva à tela dedicada de envio (ver
+  // renderIndicacoesEnviar), em vez de expandir a lista de clientes aqui.
   function campanhaIndicacaoCardHtml(c){
-    const expandido = indicacaoCampanhasExpandidas.has(c.id);
-    return '<div class="campaign-card"' + (expandido ? ' style="grid-column:1/-1;"' : '') + '>' +
+    const enviadas = enviadasPorCampanhaIndicacao[c.id] || [];
+    const confirmados = enviadas.filter(i => i.indicadorConfirmadoEm).length;
+    const stats = enviadas.length
+      ? '<span>' + enviadas.length + ' convite' + (enviadas.length===1?'':'s') + ' enviado' + (enviadas.length===1?'':'s') + '</span>' +
+        '<span style="color:var(--success);">' + confirmados + ' confirmado' + (confirmados===1?'':'s') + '</span>'
+      : '<span class="faint">Nenhum convite enviado ainda</span>';
+    return '<div class="campaign-card">' +
       '<div class="campaign-flow">' + esc(c.titulo) + '</div>' +
       '<div class="muted" style="font-size:12.5px;">Prêmio: ' + esc(c.premioIndicador) + '</div>' +
       '<div class="campaign-meta">' +
@@ -1737,43 +3447,92 @@
         (c.premioIndicado ? '<span>Boas-vindas: ' + esc(c.premioIndicado) + '</span>' : '') +
         '<span>Validade: ' + c.validadeDias + ' dias</span>' +
       '</div>' +
-      '<div class="btn-row"><button class="btn btn-sm" data-toggle-indicacao="'+c.id+'">' + (expandido ? 'Ocultar clientes' : 'Ver clientes') + '</button></div>' +
-      (expandido ? painelClientesIndicacao(c) : '') +
+      '<div class="campaign-meta" style="margin-top:2px;">' + stats + '</div>' +
+      '<div class="btn-row"><button class="btn btn-primary btn-sm" data-ir-enviar-indicacao="'+c.id+'">' + ICONS.whatsapp + ' Enviar mensagens</button></div>' +
     '</div>';
+  }
+
+  // ---------------------------------------------------------------------
+  // Página: Indicações → Enviar mensagens (uma campanha por vez)
+  // ---------------------------------------------------------------------
+  // Tela dedicada: dados da campanha no topo, lista de TODOS os clientes
+  // embaixo, cada um com o status do convite (Não enviado / Enviado /
+  // Confirmado) e a ação correspondente — pra dar clareza imediata de quem
+  // já foi contatado e quem já confirmou participação.
+  async function renderIndicacoesEnviar(main, campanhaId){
+    const campanha = state.campanhasIndicacao[campanhaId];
+    setHeader(campanha ? campanha.titulo : "Enviar mensagens",
+      "Envie o convite de indicação para cada cliente e acompanhe quem já recebeu e quem já confirmou participação.",
+      '<button class="btn header-btn btn-sm" id="btn-indicacoes-voltar">← Voltar</button>');
+    // Mesmo motivo do comentário em ligarBtnMasterVoltar: religar sempre
+    // logo depois do setHeader(), antes de qualquer await.
+    ligarBtnIndicacoesVoltar();
+    if (!campanha){
+      main.innerHTML = '<div class="card empty">Campanha não encontrada.</div>';
+      return;
+    }
+    main.innerHTML = '<div class="card empty">Carregando…</div>';
+    try {
+      enviadasPorCampanhaIndicacao[campanhaId] = await api("/indicacoes/campanhas/"+campanhaId+"/enviadas");
+    } catch(err){
+      if (err.status === 401) return;
+      toast(mensagemErro(err), "erro");
+      enviadasPorCampanhaIndicacao[campanhaId] = enviadasPorCampanhaIndicacao[campanhaId] || [];
+    }
+    renderPainelEnviarIndicacao(document.getElementById("main"), campanha);
+  }
+  function ligarBtnIndicacoesVoltar(){
+    const btn = document.getElementById("btn-indicacoes-voltar");
+    if (btn) btn.addEventListener("click", ()=> ir("indicacoes-consultar"));
+  }
+
+  function renderPainelEnviarIndicacao(main, campanha){
+    main.innerHTML =
+      '<div class="card" style="margin-bottom:16px;">' +
+        '<div class="campaign-meta" style="margin-bottom:10px;">' +
+          '<span class="pill-value">Meta: ' + campanha.metaIndicacoes + ' indicações</span>' +
+          '<span>Prêmio do indicador: ' + esc(campanha.premioIndicador) + '</span>' +
+          (campanha.premioIndicado ? '<span>Boas-vindas do indicado: ' + esc(campanha.premioIndicado) + '</span>' : '') +
+          '<span>Validade: ' + campanha.validadeDias + ' dias</span>' +
+        '</div>' +
+        '<div class="faint" style="margin-bottom:2px; font-size:12px; font-weight:700;">Mensagem de convite</div>' +
+        '<div class="msg-preview">' + esc(campanha.mensagem) + '</div>' +
+      '</div>' +
+      '<div class="card table-wrap">' + painelClientesIndicacao(campanha) + '</div>';
+    ligarAcoesEnviosIndicacao(main);
   }
 
   function painelClientesIndicacao(campanha){
     const clientes = Object.values(state.clientes).sort((a,b)=>a.nome.localeCompare(b.nome));
-    const jaEnviadas = enviadasPorCampanhaIndicacao[campanha.id] || [];
-    const enviadasPorCliente = {};
-    jaEnviadas.forEach(i => { enviadasPorCliente[i.clienteIndicadorId] = i; });
-    const recentes = enviosRecentesIndicacao[campanha.id] || {};
-
     if (!clientes.length){
       return '<div class="empty" style="padding:16px 6px;">Nenhum cliente cadastrado ainda.</div>';
     }
+    const jaEnviadas = enviadasPorCampanhaIndicacao[campanha.id] || [];
+    const porCliente = {};
+    jaEnviadas.forEach(i => { porCliente[i.clienteIndicadorId] = i; });
+
     const rows = clientes.map((cli) => {
-      const jaEnviada = enviadasPorCliente[cli.id];
-      const recente = recentes[cli.id];
-      if (jaEnviada || recente){
-        const mensagem = recente ? recente.mensagem : jaEnviada.mensagem;
-        const link = recente ? recente.link : jaEnviada.linkWhatsapp;
-        return '<tr><td colspan="3">' +
-          '<div class="faint" style="margin-bottom:2px;"><strong>' + esc(cli.nome) + '</strong></div>' +
-          '<div class="msg-preview" style="margin:4px 0;">' + esc(mensagem) + '</div>' +
-          '<div class="btn-row">' +
-            '<a class="btn btn-primary btn-sm" href="'+esc(link)+'" target="_blank" rel="noopener">' + ICONS.whatsapp + ' Abrir WhatsApp</a>' +
-            '<button class="btn btn-sm" data-copy="'+esc(link)+'">' + ICONS.copy + ' Copiar link</button>' +
-          '</div>' +
-        '</td></tr>';
+      const info = porCliente[cli.id];
+      let statusHtml;
+      if (!info){
+        statusHtml = '<button class="btn btn-primary btn-sm" data-enviar-indicacao="'+campanha.id+'" data-cliente-indicacao="'+cli.id+'">' + ICONS.whatsapp + ' Enviar mensagem</button>';
+      } else if (info.indicadorConfirmadoEm){
+        statusHtml = '<span class="badge b-confirmado">Confirmado</span>';
+      } else {
+        statusHtml =
+          '<div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">' +
+            '<span class="badge b-enviado">Enviado</span>' +
+            '<button class="btn btn-ghost btn-sm" data-abrir-indicacao="'+esc(info.linkWhatsapp)+'" title="Abrir WhatsApp novamente">' + ICONS.whatsapp + '</button>' +
+            '<button class="btn btn-ghost btn-sm" data-copy="'+esc(info.linkWhatsapp)+'" title="Copiar link">' + ICONS.copy + '</button>' +
+          '</div>';
       }
       return '<tr>' +
         '<td><strong>'+esc(cli.nome)+'</strong></td>' +
         '<td class="faint mono">'+esc(cli.telefone)+'</td>' +
-        '<td><button class="btn btn-primary btn-sm" data-enviar-indicacao="'+campanha.id+'" data-cliente-indicacao="'+cli.id+'">' + ICONS.whatsapp + ' Enviar convite</button></td>' +
+        '<td>'+statusHtml+'</td>' +
       '</tr>';
     }).join("");
-    return '<div class="table-wrap" style="margin-top:6px;"><table><thead><tr><th>Cliente</th><th>WhatsApp</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+    return '<table><thead><tr><th>Cliente</th><th>WhatsApp</th><th>Status</th></tr></thead><tbody>'+rows+'</tbody></table>';
   }
 
   function ligarAcoesEnviosIndicacao(main){
@@ -1782,17 +3541,33 @@
         const campanhaId = btn.getAttribute("data-enviar-indicacao");
         const clienteId = btn.getAttribute("data-cliente-indicacao");
         btn.disabled = true;
+        // Abre a aba em branco AGORA, ainda dentro do gesto de clique do
+        // usuário — mesmo padrão (e mesmo motivo) do botão de envio de
+        // Giftback: como o envio grava no banco antes de termos o link, só
+        // abrir a aba depois do await já não conta como interação direta, e
+        // o navegador bloqueia o pop-up silenciosamente (principalmente
+        // Safari/iOS).
+        const abaWhatsapp = wameAbrirAbaSeManual();
+        let resp;
         try {
-          const { mensagem, link } = await api("/indicacoes/campanhas/"+campanhaId+"/enviar", { method:"POST", body:{ clienteId } });
-          enviosRecentesIndicacao[campanhaId] = enviosRecentesIndicacao[campanhaId] || {};
-          enviosRecentesIndicacao[campanhaId][clienteId] = { mensagem, link };
-          renderIndicacoesConsultar(document.getElementById("main"));
-          toast("Convite de indicação enviado para " + (state.clientes[clienteId]||{}).nome + ".");
+          resp = await api("/indicacoes/campanhas/"+campanhaId+"/enviar", { method:"POST", body:{ clienteId } });
         } catch(err){
+          if (abaWhatsapp) abaWhatsapp.close();
           btn.disabled = false;
           if (err.status!==401) toast(mensagemErro(err), "erro");
+          return;
         }
+        const lista = enviadasPorCampanhaIndicacao[campanhaId] = enviadasPorCampanhaIndicacao[campanhaId] || [];
+        const idx = lista.findIndex(i => i.clienteIndicadorId === clienteId);
+        if (idx >= 0) lista[idx] = resp.indicacao; else lista.push(resp.indicacao);
+        wameConcluirEnvio(abaWhatsapp, resp);
+        wameToastEnvio(resp.envioAutomatico, "Convite de indicação", (state.clientes[clienteId]||{}).nome);
+        const campanha = state.campanhasIndicacao[campanhaId];
+        if (campanha) renderPainelEnviarIndicacao(document.getElementById("main"), campanha);
       });
+    });
+    main.querySelectorAll("[data-abrir-indicacao]").forEach(btn=>{
+      btn.addEventListener("click", ()=> window.open(btn.getAttribute("data-abrir-indicacao"), "_blank", "noopener"));
     });
     main.querySelectorAll("[data-copy]").forEach(btn => {
       btn.addEventListener("click", ()=> copiar(btn.getAttribute("data-copy")));
@@ -1831,13 +3606,25 @@
   // ---------------------------------------------------------------------
   // Página: Controle de Indicações → Resgate Indicações
   // ---------------------------------------------------------------------
+  // Mostra TODO indicador que já confirmou participação (não só quem já
+  // bateu a meta, como antes) — dá clareza do estágio de cada um: quantos
+  // amigos já confirmou, se já pode resgatar o prêmio e se já resgatou.
   let resgateIndicacaoEmEdicao = new Set();
-  let resgatesIndicacaoCache = []; // cache local: vem de GET /indicacoes/resgataveis, refeito ao entrar na tela e após cada confirmação
+  let resgatesIndicacaoCache = []; // cache local: vem de GET /indicacoes/indicadores, refeito ao entrar na tela e após cada confirmação
+  let indicacaoIndicadosExpandidos = new Set(); // quais linhas estão com o drill-down "amigos confirmados" aberto
+  let indicadosPorIndicacaoCache = {}; // cache local: { indicacaoId: [ {nome, telefone, dataConfirmacao, ...} ] }
 
   async function renderIndicacoesResgate(main){
-    setHeader("Resgate Indicações", "Indicadores que já bateram a meta de amigos indicados e ainda não resgataram o prêmio.");
+    setHeader("Resgate Indicações", "Todo indicador que já confirmou participação, com o progresso de amigos indicados até a meta e o resgate do prêmio.");
+    // Reabrir a tela (ex.: saiu pra outro menu e voltou) tem que sempre
+    // mostrar o estado mais recente — inclusive no drill-down "amigos
+    // indicados" de cada linha. Sem isso, uma linha que já tinha sido
+    // expandida antes ficava com a lista de amigos velha (cache nunca
+    // invalidado), mesmo depois de novas confirmações chegarem.
+    indicacaoIndicadosExpandidos = new Set();
+    indicadosPorIndicacaoCache = {};
     main.innerHTML = '<div class="card empty">Carregando…</div>';
-    try { resgatesIndicacaoCache = await api("/indicacoes/resgataveis"); }
+    try { resgatesIndicacaoCache = await api("/indicacoes/indicadores"); }
     catch(err){
       if (err.status === 401) return;
       main.innerHTML = '<div class="card empty">Não foi possível carregar a lista.</div>';
@@ -1848,32 +3635,59 @@
   function renderTabelaResgateIndicacao(main){
     const lista = resgatesIndicacaoCache;
     main.innerHTML =
-      '<div class="card table-wrap" id="tabela-resgate-indicacao">' + (lista.length ? tabelaResgatesIndicacao(lista) : '<div class="empty">Nenhum indicador pronto para resgatar prêmio no momento.</div>') + '</div>';
+      '<div class="card table-wrap" id="tabela-resgate-indicacao">' + (lista.length ? tabelaResgatesIndicacao(lista) : '<div class="empty">Nenhum indicador confirmou participação ainda.</div>') + '</div>';
 
     ligarAcoesResgateIndicacao(main);
   }
   function tabelaResgatesIndicacao(lista){
     const rows = lista.map(r => {
       let acao;
-      if (resgateIndicacaoEmEdicao.has(r.indicacaoId)){
+      if (r.resgatado){
+        acao = '<span class="badge b-confirmado">Prêmio resgatado</span>';
+      } else if (resgateIndicacaoEmEdicao.has(r.indicacaoId)){
         acao = '<div style="display:flex; flex-wrap:nowrap; gap:6px; align-items:center;">' +
           '<input type="number" min="0" step="0.01" placeholder="Valor da venda" data-valor-resgate-input="'+r.indicacaoId+'" style="width:110px; flex:none; padding:6px 8px; background:var(--surface-2); border:1px solid var(--border); border-radius:8px; color:var(--text);">' +
           '<button class="btn btn-primary btn-sm" style="flex:none;" data-confirmar-resgate="'+r.indicacaoId+'">Confirmar</button>' +
           '<button class="btn btn-ghost btn-sm" style="flex:none;" data-cancelar-resgate="'+r.indicacaoId+'">Cancelar</button>' +
         '</div>';
-      } else {
+      } else if (r.metaAtingida){
         acao = '<button class="btn btn-primary btn-sm" data-toggle-resgate="'+r.indicacaoId+'">Resgatar prêmio</button>';
+      } else {
+        acao = '<span class="faint" style="font-size:12px;">Aguardando indicações</span>';
       }
-      return '<tr>' +
-        '<td><strong>'+esc(r.indicadorNome)+'</strong></td>' +
+      const expandido = indicacaoIndicadosExpandidos.has(r.indicacaoId);
+      const progresso =
+        '<button class="btn btn-ghost btn-sm" data-ver-indicados="'+r.indicacaoId+'" style="font-weight:700;" title="Ver amigos indicados por ele">' +
+          r.totalConfirmados + ' / ' + r.metaIndicacoes + (r.metaAtingida ? ' ✓' : '') +
+        '</button>';
+      const linhaPrincipal = '<tr>' +
+        '<td><strong>'+esc(r.indicadorNome)+'</strong>' + (r.codigo ? ' <span class="faint mono" style="font-size:11px;">'+esc(r.codigo)+'</span>' : '') + '</td>' +
         '<td class="faint mono">'+esc(r.indicadorTelefone)+'</td>' +
         '<td class="muted">'+esc(r.campanhaTitulo)+'</td>' +
         '<td class="muted">'+esc(r.premioIndicador)+'</td>' +
-        '<td><span class="pill-value">'+r.totalConfirmados+' / '+r.metaIndicacoes+'</span></td>' +
+        '<td>'+progresso+'</td>' +
         '<td>'+acao+'</td>' +
       '</tr>';
+      const linhaExpandida = expandido
+        ? '<tr><td colspan="6" style="background:var(--surface-2);">' + painelIndicadosDoIndicador(r.indicacaoId) + '</td></tr>'
+        : '';
+      return linhaPrincipal + linhaExpandida;
     }).join("");
-    return '<table><thead><tr><th>Indicador</th><th>WhatsApp</th><th>Campanha</th><th>Prêmio</th><th>Indicados</th><th>Ação</th></tr></thead><tbody>'+rows+'</tbody></table>';
+    return '<table><thead><tr><th>Indicador</th><th>WhatsApp</th><th>Campanha</th><th>Prêmio</th><th>Indicações</th><th>Ação</th></tr></thead><tbody>'+rows+'</tbody></table>';
+  }
+  // Drill-down: "Ao clicar em indicações, mostra os clientes que vieram
+  // pela indicação" — a lista de amigos confirmados por aquele indicador.
+  function painelIndicadosDoIndicador(indicacaoId){
+    const lista = indicadosPorIndicacaoCache[indicacaoId];
+    if (!lista) return '<div class="faint" style="padding:8px 6px;">Carregando…</div>';
+    if (!lista.length) return '<div class="faint" style="padding:8px 6px;">Nenhum amigo confirmado ainda.</div>';
+    const linhas = lista.map(ind =>
+      '<div style="display:flex; justify-content:space-between; gap:10px; padding:6px 0; border-bottom:1px solid var(--border);">' +
+        '<span><strong>'+esc(ind.nome)+'</strong> <span class="faint mono" style="font-size:11.5px;">'+esc(ind.telefone)+'</span></span>' +
+        '<span class="faint" style="font-size:12px;">'+dataHoraBR(ind.dataConfirmacao)+'</span>' +
+      '</div>'
+    ).join("");
+    return '<div style="padding:6px 4px;"><div class="muted" style="font-size:12px; font-weight:700; margin-bottom:4px;">Amigos indicados por ele:</div>' + linhas + '</div>';
   }
   function ligarAcoesResgateIndicacao(main){
     main.querySelectorAll("[data-toggle-resgate]").forEach(b=>{
@@ -1897,6 +3711,23 @@
         } catch(err){
           b.disabled = false;
           if (err.status!==401) toast(mensagemErro(err), "erro");
+        }
+      });
+    });
+    main.querySelectorAll("[data-ver-indicados]").forEach(b=>{
+      b.addEventListener("click", async ()=>{
+        const indicacaoId = b.getAttribute("data-ver-indicados");
+        if (indicacaoIndicadosExpandidos.has(indicacaoId)){
+          indicacaoIndicadosExpandidos.delete(indicacaoId);
+          renderTabelaResgateIndicacao(main);
+          return;
+        }
+        indicacaoIndicadosExpandidos.add(indicacaoId);
+        renderTabelaResgateIndicacao(main);
+        if (!indicadosPorIndicacaoCache[indicacaoId]){
+          try { indicadosPorIndicacaoCache[indicacaoId] = await api("/indicacoes/"+indicacaoId+"/indicados"); }
+          catch(err){ if (err.status!==401){ toast(mensagemErro(err), "erro"); indicadosPorIndicacaoCache[indicacaoId] = []; } }
+          renderTabelaResgateIndicacao(main);
         }
       });
     });
@@ -2012,11 +3843,12 @@
         const campId = btn.getAttribute("data-enviar");
         btn.disabled = true;
         try {
-          const { mensagem, link } = await api("/campanhas/"+campId+"/enviar", { method:"POST", body:{ clienteId, compraId } });
-          novaCompraResultado.enviados[campId] = { mensagem, link };
+          const { mensagem, link, envioAutomatico } = await api("/campanhas/"+campId+"/enviar", { method:"POST", body:{ clienteId, compraId } });
+          novaCompraResultado.enviados[campId] = { mensagem, link, envioAutomatico };
           await carregarTudo();
           renderResultadoElegibilidade();
-          toast("Giftback gerado e marcado como enviado.");
+          if (envioAutomatico) wameToastEnvio(envioAutomatico, "Giftback", (state.clientes[clienteId]||{}).nome);
+          else toast("Giftback gerado e marcado como enviado.");
         } catch(err){
           btn.disabled = false;
           if (err.status!==401) toast(mensagemErro(err), "erro");
@@ -2032,6 +3864,7 @@
       return '<div class="campaign-card">' +
         '<div class="campaign-flow">' + esc(c.titulo) + '</div>' +
         '<div class="msg-preview">' + esc(enviado.mensagem) + '</div>' +
+        wameAvisoEnvioHtml(enviado.envioAutomatico) +
         '<div class="link-box">' + esc(enviado.link) + '</div>' +
         '<div class="btn-row">' +
           '<a class="btn btn-primary btn-sm" href="'+esc(enviado.link)+'" target="_blank" rel="noopener">' + ICONS.whatsapp + ' Abrir WhatsApp</a>' +
@@ -2045,7 +3878,7 @@
       '<div class="campaign-meta"><span class="pill-value">' + reais(c.valor) + '</span><span>para ' + esc((state.produtos[c.produtoAlvoId]||{}).nome||"") + '</span>' +
         (c.valorMinimoCompra ? '<span>compra mín. ' + reais(c.valorMinimoCompra) + '</span>' : '') +
         '<span>válido ' + c.validadeDias + ' dias</span></div>' +
-      '<div class="btn-row"><button class="btn btn-primary btn-sm" data-enviar="'+c.id+'">' + ICONS.whatsapp + ' Gerar link e marcar como enviado</button></div>' +
+      '<div class="btn-row"><button class="btn btn-primary btn-sm" data-enviar="'+c.id+'">' + ICONS.whatsapp + (wameAtiva() ? ' Enviar pelo WhatsApp' : ' Gerar link e marcar como enviado') + '</button></div>' +
     '</div>';
   }
 
@@ -2154,7 +3987,7 @@
       '<div style="margin-bottom:16px;">' + whatsappPreviewShellHtml("modal-giftback") + '</div>' +
       '<div class="btn-row">' +
         '<button type="button" class="btn" data-modal-fechar>Cancelar</button>' +
-        '<button type="button" class="btn btn-primary" id="modal-btn-confirmar-envio">' + ICONS.whatsapp + ' Enviar e abrir WhatsApp</button>' +
+        '<button type="button" class="btn btn-primary" id="modal-btn-confirmar-envio">' + ICONS.whatsapp + (wameAtiva() ? ' Enviar pelo WhatsApp' : ' Enviar e abrir WhatsApp') + '</button>' +
       '</div>'
     );
   }
@@ -2189,10 +4022,10 @@
       // clique. Como enviarGiftback() é assíncrono (grava no banco antes de
       // termos o link), abrir a aba só depois do await já conta como não ter
       // vindo de uma interação direta, e o navegador bloqueia silenciosamente.
-      const abaWhatsapp = window.open("", "_blank");
-      let link;
+      const abaWhatsapp = wameAbrirAbaSeManual();
+      let resp;
       try {
-        ({ link } = await api("/campanhas/"+alvo.campanhaId+"/enviar", { method:"POST", body:{ clienteId: alvo.clienteId, compraId: alvo.compraId } }));
+        resp = await api("/campanhas/"+alvo.campanhaId+"/enviar", { method:"POST", body:{ clienteId: alvo.clienteId, compraId: alvo.compraId } });
         giftbackElegiveisCache = await api("/giftback/elegiveis");
         await carregarTudo();
       } catch(err){
@@ -2202,9 +4035,8 @@
         return;
       }
       fecharModal();
-      toast("Giftback enviado para " + cliente.nome + ".");
-      if (abaWhatsapp) abaWhatsapp.location.href = link;
-      else window.open(link, "_blank", "noopener");
+      wameConcluirEnvio(abaWhatsapp, resp);
+      wameToastEnvio(resp.envioAutomatico, "Giftback", cliente.nome);
       const wrap = document.getElementById("tabela-elegiveis-wrap");
       if (wrap){
         wrap.innerHTML = giftbackElegiveisTabelaHtml();
@@ -2462,20 +4294,46 @@
     '</div></div>';
   }
 
-  function botaoRetornoWhatsapp(linkRetorno){
+  function botaoRetornoWhatsapp(linkRetorno, rotulo){
     if (!linkRetorno){
       return '<p class="faint" style="margin-top:14px;">O WhatsApp do estabelecimento ainda não foi configurado (Configurações → Dados da empresa) — este passo fica desabilitado até lá.</p>';
     }
     return '<a class="btn btn-primary" href="'+esc(linkRetorno)+'" target="_blank" rel="noopener" style="width:100%; justify-content:center; padding:12px; margin-top:14px; text-decoration:none;">' +
-      ICONS.whatsapp + ' Agendar</a>';
+      ICONS.whatsapp + ' ' + esc(rotulo || 'Agendar') + '</a>';
   }
 
   // ---------------------------------------------------------------------
-  // Página pública de indicação — o mesmo link serve tanto para o indicador
-  // (que vê o prêmio e encaminha a amigos) quanto para o amigo indicado (que
-  // confirma nome + WhatsApp para virar cliente).
+  // Página pública de indicação — DOIS estágios no MESMO link/token:
+  //   Estágio A: o próprio indicador confirma participação (últimos 4
+  //   dígitos do WhatsApp dele) e recebe o botão para presentear os amigos.
+  //   Estágio B: uma vez o indicador confirmado, o MESMO link, reaberto por
+  //   qualquer pessoa (os amigos), vira "Você foi indicado por X e ganhou Y"
+  //   com o formulário de nome + WhatsApp completo. Ver routes/public.js.
   // ---------------------------------------------------------------------
-  async function renderIndicacaoPublica(tok){
+  // Um MESMO token serve dois papéis diferentes ao longo do tempo: primeiro o
+  // link que o INDICADOR recebe (mostra as condições dele + confirmação por
+  // últimos 4 dígitos); depois que ele confirma, o link passa a poder ser
+  // reaberto por dois tipos de gente — o próprio indicador, revendo o status
+  // da campanha dele, e os AMIGOS pra quem ele encaminhou (formulário de
+  // nome+WhatsApp). Sem distinguir os dois, o indicador que reabrisse o
+  // PRÓPRIO link (ex.: no histórico do WhatsApp) caía, por engano, na tela do
+  // amigo ("Você foi indicado por você mesmo e ganhou..."). Dois sinais
+  // resolvem isso: (1) o link que o indicador ENCAMINHA leva um sufixo
+  // "/amigo" (ver linkParaAmigo em public.js) — vale pra qualquer link gerado
+  // a partir de agora, em qualquer aparelho; (2) como sufixo não ajuda em
+  // links já encaminhados ANTES desta correção, também guardamos neste
+  // navegador, assim que ele vê o link ainda sem confirmar (só o indicador
+  // pode ver isso — o link do amigo só passa a existir depois de confirmado),
+  // uma marca de "este navegador é do dono do link", usada como resposta
+  // padrão quando não há sufixo.
+  function souDonoDoLinkIndicacao(tok, aindaNaoConfirmado){
+    const chave = "gb_indicacao_dono_" + tok;
+    try {
+      if (aindaNaoConfirmado){ localStorage.setItem(chave, "1"); return true; }
+      return localStorage.getItem(chave) === "1";
+    } catch(e){ return false; }
+  }
+  async function renderIndicacaoPublica(tok, viaAmigoUrl){
     const main = document.getElementById("main");
     main.style.padding = "0";
     main.innerHTML = '<div class="redeem-wrap"><div class="redeem-card">Carregando…</div></div>';
@@ -2486,10 +4344,66 @@
       main.innerHTML = telaIndicacao({ erro: mensagemErro(err, "Não foi possível abrir esta indicação.") });
       return;
     }
+    const souDono = souDonoDoLinkIndicacao(tok, !ctx.indicadorConfirmado);
+    ctx.ehAmigo = ctx.indicadorConfirmado && (viaAmigoUrl || !souDono);
+
     main.innerHTML = telaIndicacao(ctx);
-    if (!ctx.erro) ligarFormularioIndicacao(tok, ctx);
+    if (ctx.erro) return;
+    if (ctx.ehAmigo) ligarFormularioIndicacao(tok, ctx);
+    else if (!ctx.indicadorConfirmado) ligarFormularioIndicacaoIndicador(tok, ctx);
+    else ligarBotaoCopiarLinkIndicacao();
   }
 
+  // Estágio A: o indicador digita os últimos 4 números do WhatsApp dele para
+  // confirmar participação (mesmo padrão de ligarFormularioConfirmacao() do
+  // resgate de giftback). Ao confirmar, troca a tela LOCALMENTE para o botão
+  // de presentear amigos — sem refazer o GET, que a partir de agora devolve
+  // indicadorConfirmado:true e mostraria o formulário do amigo indicado.
+  function ligarFormularioIndicacaoIndicador(tok, ctx){
+    const form = document.getElementById("form-confirmar-indicador");
+    if (!form) return;
+    const input = document.getElementById("input-ultimos4-indicador");
+    const erroEl = document.getElementById("erro-indicador");
+    form.addEventListener("submit", async (e)=>{
+      e.preventDefault();
+      const digitado = (input.value || "").replace(/\D/g,"");
+      if (digitado.length !== 4){
+        erroEl.textContent = "Digite os 4 últimos números do seu WhatsApp.";
+        erroEl.style.display = "block";
+        return;
+      }
+      erroEl.style.display = "none";
+      const botao = document.getElementById("btn-confirmar-indicador");
+      botao.disabled = true;
+      botao.textContent = "Confirmando…";
+      try {
+        const resp = await apiPublica("/public/indicacao/"+tok+"/confirmar-indicador", { method:"POST", body:{ ultimos4: digitado } });
+        document.getElementById("main").innerHTML = telaIndicacao({
+          empresa: ctx.empresa,
+          campanha: resp.campanha || ctx.campanha,
+          clienteIndicador: resp.clienteIndicador || ctx.clienteIndicador,
+          linkIndicacao: resp.linkIndicacao || ctx.linkIndicacao,
+          linkEncaminhar: resp.linkEncaminhar || ctx.linkEncaminhar,
+          indicadorConfirmadoAgora: true,
+        });
+        ligarBotaoCopiarLinkIndicacao();
+      } catch(err){
+        erroEl.textContent = mensagemErro(err, "Não foi possível confirmar.");
+        erroEl.style.display = "block";
+        input.value = "";
+        input.focus();
+        botao.disabled = false;
+        botao.textContent = "Quero participar";
+      }
+    });
+  }
+  function ligarBotaoCopiarLinkIndicacao(){
+    const btn = document.getElementById("btn-copiar-link-indicacao");
+    if (btn) btn.addEventListener("click", ()=> copiar(btn.getAttribute("data-link-indicacao")));
+  }
+
+  // Estágio B: o amigo indicado confirma nome completo + WhatsApp completo
+  // (não há nada cadastrado ainda para conferir por últimos 4 dígitos).
   function ligarFormularioIndicacao(tok, ctx){
     const form = document.getElementById("form-confirmar-indicacao");
     if (!form) return;
@@ -2506,8 +4420,11 @@
       try {
         const resp = await apiPublica("/public/indicacao/"+tok+"/confirmar", { method:"POST", body:{ nome, telefone } });
         document.getElementById("main").innerHTML = telaIndicacao({
-          empresa: ctx.empresa, campanha: ctx.campanha, clienteIndicador: ctx.clienteIndicador, linkEncaminhar: ctx.linkEncaminhar,
-          confirmadoAgora: { nome: resp.nome, premioIndicado: resp.premioIndicado, ativadoEm: new Date().toISOString() },
+          empresa: ctx.empresa, campanha: ctx.campanha, clienteIndicador: ctx.clienteIndicador,
+          confirmadoAgora: {
+            nome: resp.nome, premioIndicado: resp.premioIndicado, ativadoEm: new Date().toISOString(),
+            codigoVoucher: resp.codigoVoucher, linkAgendar: resp.linkAgendar,
+          },
         });
         ligarCronometro();
       } catch(err){
@@ -2533,12 +4450,14 @@
     const indicador = ctx.clienteIndicador || {};
     const nomeIndicador = esc(primeiroNome(indicador.nome));
     const botaoEncaminhar = ctx.linkEncaminhar
-      ? '<a class="btn btn-primary" href="'+esc(ctx.linkEncaminhar)+'" target="_blank" rel="noopener" style="width:100%; justify-content:center; padding:12px; margin-top:14px; text-decoration:none;">' +
-          ICONS.whatsapp + ' Encaminhar para um amigo</a>'
+      ? '<a class="btn btn-primary" id="btn-presentear-amigos" href="'+esc(ctx.linkEncaminhar)+'" target="_blank" rel="noopener" data-link-indicacao="'+esc(ctx.linkIndicacao||"")+'" style="width:100%; justify-content:center; padding:12px; margin-top:14px; text-decoration:none;">' +
+          ICONS.whatsapp + ' Presentear seus amigos</a>' +
+        (ctx.linkIndicacao ? '<button type="button" class="btn btn-sm" id="btn-copiar-link-indicacao" data-link-indicacao="'+esc(ctx.linkIndicacao)+'" style="width:100%; justify-content:center; margin-top:8px;">' + ICONS.copy + ' Copiar link do convite</button>' : '')
       : '';
 
     let corpo;
     if (ctx.confirmadoAgora){
+      // Estágio B, confirmado agora: o AMIGO acabou de confirmar a indicação.
       const r = ctx.confirmadoAgora;
       const alvoIndicacao = r.ativadoEm && c.validadeDias ? addDias(r.ativadoEm, c.validadeDias) : null;
       corpo =
@@ -2546,27 +4465,67 @@
         '<div class="redeem-title">Indicação confirmada ✓</div>' +
         '<p class="muted" style="font-size:13.5px;">Valeu, ' + esc(primeiroNome(r.nome)) + '! Sua indicação por ' + nomeIndicador + ' foi registrada.</p>' +
         (r.premioIndicado ? '<div class="redeem-rules"><strong style="display:block; margin-bottom:4px; color:var(--text);">Seu presente de boas-vindas</strong>' + esc(r.premioIndicado) + '</div>' : '') +
+        (r.codigoVoucher ? '<div class="voucher-code">' + esc(r.codigoVoucher) + '</div>' : '') +
         (alvoIndicacao ? cronometroHtml(alvoIndicacao, "Tempo restante para resgatar seu presente") : '') +
-        '<p class="faint" style="margin-top:10px;">Em breve o estabelecimento entra em contato para combinar os detalhes.</p>' +
+        botaoRetornoWhatsapp(r.linkAgendar, "Agendar agora") +
+        '<p class="faint" style="margin-top:10px;">Em breve o estabelecimento entra em contato para combinar os detalhes.</p>';
+    } else if (ctx.indicadorConfirmadoAgora || (ctx.indicadorConfirmado && !ctx.ehAmigo)){
+      // Estágio A, já confirmado: aqui entram DOIS casos — (1) o INDICADOR
+      // acabou de confirmar participação agora mesmo (ctx.indicadorConfirmadoAgora,
+      // estado local após o POST) e (2) o INDICADOR reabriu o link dele
+      // depois de já ter confirmado antes (ctx.ehAmigo é false — ver
+      // souDonoDoLinkIndicacao/renderIndicacaoPublica pra como isso é
+      // decidido). Nos dois casos é o PRÓPRIO indicador olhando, então mostra
+      // o status dele + botão de encaminhar — nunca o formulário do amigo
+      // indicado (esse só aparece no branch abaixo, quando ctx.ehAmigo).
+      const progresso = (!ctx.indicadorConfirmadoAgora && typeof ctx.totalConfirmados === "number")
+        ? '<p class="faint" style="margin-top:4px;">' + ctx.totalConfirmados + ' de ' + c.metaIndicacoes + ' amigo(s) confirmado(s) até agora.</p>'
+        : '';
+      corpo =
+        '<div class="redeem-badge">' + ICONS.check + '</div>' +
+        '<div class="redeem-title">Participação confirmada ✓</div>' +
+        '<p class="muted" style="font-size:13.5px;">Agora é só chamar seus amigos! Cada um que confirmar pelo seu link ganha' + (c.premioIndicado ? ': <strong style="color:var(--text);">' + esc(c.premioIndicado) + '</strong>' : ' o presente de boas-vindas') + '.</p>' +
+        progresso +
         botaoEncaminhar;
-    } else {
+    } else if (ctx.ehAmigo){
+      // Estágio B: quem abriu o link é um AMIGO indicado (não o próprio
+      // indicador — ver ctx.ehAmigo em renderIndicacaoPublica), depois que o
+      // indicador já confirmou participação anteriormente.
       corpo =
         '<div class="redeem-badge">' + ICONS.gift + '</div>' +
-        '<div class="faint" style="text-transform:uppercase; letter-spacing:.05em; font-weight:700; font-size:11px;">Indicação de ' + nomeIndicador + '</div>' +
-        '<div class="redeem-title" style="margin-top:6px;">' + esc(c.titulo) + '</div>' +
-        '<div class="redeem-rules">' +
-          (c.premioIndicado ? '<strong style="display:block; margin-bottom:4px; color:var(--text);">Se você confirmar a indicação de ' + nomeIndicador + ', ganha:</strong>' + esc(c.premioIndicado) + '<br><br>' : '') +
-          '<strong style="display:block; margin-bottom:4px; color:var(--text);">Prêmio de ' + nomeIndicador + ':</strong>' + esc(c.premioIndicador) + ' a cada ' + c.metaIndicacoes + ' amigo(s) indicado(s)' +
-          (c.condicoes ? '<br><br><strong style="color:var(--text);">Condições:</strong> ' + esc(c.condicoes) : '') +
-        '</div>' +
+        '<div class="faint" style="text-transform:uppercase; letter-spacing:.05em; font-weight:700; font-size:11px;">Você foi indicado</div>' +
+        '<div class="redeem-title" style="margin-top:6px;">Você foi indicado por ' + nomeIndicador + ' e acaba de ganhar ' + esc(c.premioIndicado || "um presente de boas-vindas") + '!</div>' +
+        // A tela pública do indicado (amigo) não mostra "Condições" — isso
+        // fica só na tela do indicador (branch else abaixo, tela dele). Aqui
+        // entra a instrução direta de como confirmar, no lugar do campo de
+        // condições.
+        '<div class="redeem-rules">Para confirmar, informe seu nome e sobrenome e número do seu WhatsApp — clique em confirmar e resgatar.</div>' +
         '<form id="form-confirmar-indicacao" class="form-grid" style="grid-template-columns:1fr; margin-top:14px;">' +
           '<div class="field"><label>Seu nome completo</label><input type="text" name="nome" required placeholder="Seu nome completo"></div>' +
           '<div class="field"><label>Seu WhatsApp</label><input type="tel" name="telefone" required placeholder="+55 11 90000-0000"></div>' +
           '<div id="erro-indicacao" class="auth-error" style="display:none; color:var(--danger); font-size:12.5px;"></div>' +
-          '<button class="btn btn-primary" id="btn-confirmar-indicacao" type="submit" style="justify-content:center; padding:12px;">Emitir voucher</button>' +
+          '<button class="btn btn-primary" id="btn-confirmar-indicacao" type="submit" style="justify-content:center; padding:12px;">Confirmar e resgatar</button>' +
         '</form>' +
-        '<p class="faint" style="margin-top:10px; font-size:12px;">Foi você quem recebeu este link de ' + nomeIndicador + '? Preencha acima para confirmar. Se este link é seu e quer chamar mais amigos, use o botão abaixo.</p>' +
-        botaoEncaminhar;
+        '<p class="faint" style="margin-top:10px; font-size:12px;">Após confirmar, não deixe de agendar o seu Voucher.</p>';
+    } else {
+      // Estágio A, ainda não confirmado: quem abriu o link é o PRÓPRIO
+      // indicador (é para ele que o convite inicial foi enviado).
+      corpo =
+        '<div class="redeem-badge">' + ICONS.gift + '</div>' +
+        '<div class="faint" style="text-transform:uppercase; letter-spacing:.05em; font-weight:700; font-size:11px;">Programa de indicação</div>' +
+        '<div class="redeem-title" style="margin-top:6px;">' + esc(c.titulo) + '</div>' +
+        '<div class="redeem-rules">' +
+          '<strong style="display:block; margin-bottom:4px; color:var(--text);">Indique ' + c.metaIndicacoes + ' amigo(s) e ganhe:</strong>' + esc(c.premioIndicador) +
+          (c.premioIndicado ? '<br><br><strong style="color:var(--text);">Cada amigo que confirmar ganha:</strong> ' + esc(c.premioIndicado) : '') +
+          (c.condicoes ? '<br><br><strong style="color:var(--text);">Condições:</strong> ' + esc(c.condicoes) : '') +
+        '</div>' +
+        '<form id="form-confirmar-indicador" class="form-grid" style="grid-template-columns:1fr; margin-top:14px;">' +
+          '<label style="display:block; text-align:left; font-size:12px; font-weight:700; color:var(--text-muted); margin-bottom:6px;">Para confirmar que é você, digite os 4 últimos números do seu WhatsApp</label>' +
+          '<input id="input-ultimos4-indicador" type="tel" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" placeholder="0000" required ' +
+            'style="width:100%; text-align:center; font-family:\'IBM Plex Mono\',monospace; font-size:20px; letter-spacing:0.3em; padding:10px; border-radius:9px; border:1px solid var(--border); background:var(--surface-2); color:var(--text); margin-bottom:8px;">' +
+          '<div id="erro-indicador" class="faint" style="display:none; color:var(--danger); margin-bottom:8px;"></div>' +
+          '<button class="btn btn-primary" id="btn-confirmar-indicador" type="submit" style="width:100%; justify-content:center; padding:12px;">Quero participar</button>' +
+        '</form>';
     }
 
     return '<div class="redeem-wrap"'+redeemWrapAttr(ctx.empresa)+'><div class="redeem-card">' + corpo +
@@ -2597,6 +4556,13 @@
     const tokenSalvo = localStorage.getItem("gb_token");
     if (!tokenSalvo){
       renderLogin();
+      return;
+    }
+    // Sessão do Painel Master: o token não tem empresaId, então GET /auth/me
+    // (rota requireAuth de empresa) sempre rejeitaria — vai direto para o
+    // fluxo master, que valida o token na primeira chamada a /master/empresas.
+    if (localStorage.getItem("gb_role") === "master"){
+      await iniciarAppMaster();
       return;
     }
     try {

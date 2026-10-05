@@ -21,6 +21,15 @@ function novoCodigoVoucher() {
   for (let i = 0; i < 6; i++) s += alf[crypto.randomInt(alf.length)];
   return s;
 }
+// Mesmo formato do código do voucher de Giftback acima, mas com prefixo
+// próprio ("IN-") — identifica o resgate do presente de boas-vindas de um
+// amigo indicado (ver tabela indicados.codigo).
+function novoCodigoIndicacao() {
+  const alf = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let s = "IN-";
+  for (let i = 0; i < 6; i++) s += alf[crypto.randomInt(alf.length)];
+  return s;
+}
 
 // Monta a mensagem que vai para o CLIENTE, substituindo as variáveis do
 // template da campanha. `linkResgate` é a URL pública já pronta.
@@ -56,6 +65,15 @@ function montarMensagemRetorno({ campanha, cliente, produtoAlvoNome, voucher }) 
     msg = msg.split("{{" + k + "}}").join(vars[k]);
   });
   return msg;
+}
+
+// Mensagem que o AMIGO indicado manda pro WhatsApp do estabelecimento, ao
+// clicar em "Agendar agora" logo depois de confirmar a indicação — mesmo
+// espírito de montarMensagemRetorno (Giftback), com o código do presente de
+// boas-vindas dele no lugar do código do voucher.
+function montarMensagemAgendarIndicado({ premioIndicado, codigo }) {
+  return "Olá! Recebi " + (premioIndicado || "meu presente de boas-vindas") +
+    " e o voucher " + codigo + " e quero agendar:\n\nData: \nHorário: ";
 }
 
 function montarLinkWhatsapp(tel, mensagem) {
@@ -106,8 +124,10 @@ module.exports = {
   reais,
   novoToken,
   novoCodigoVoucher,
+  novoCodigoIndicacao,
   montarMensagem,
   montarMensagemRetorno,
+  montarMensagemAgendarIndicado,
   montarLinkWhatsapp,
   montarLinkWhatsappGenerico,
   montarMensagemIndicacao,

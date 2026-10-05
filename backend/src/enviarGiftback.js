@@ -1,6 +1,7 @@
 const db = require("./db");
 const { mapCampanha, mapCliente, mapEnvio } = require("./mappers");
 const { montarMensagem, montarLinkWhatsapp, novoToken } = require("./mensagens");
+const wame = require("./wame/wameService");
 
 // Disparo de giftback — compartilhado entre "Nova compra" (lista de elegíveis
 // pós-compra) e o botão de WhatsApp por cliente dentro de cada campanha.
@@ -48,7 +49,22 @@ async function enviarGiftback({ empresaId, clienteId, campanhaId, compraId, base
      RETURNING *`,
     [empresaId, clienteId, campanhaId, compraId, tok, linkWhatsapp, mensagem]
   );
-  return { envio: mapEnvio(insertRes.rows[0]), mensagem, link: linkWhatsapp };
+  const envio = mapEnvio(insertRes.rows[0]);
+
+  // Se a empresa conectou o WhatsApp pela WAME, a mensagem sai sozinha pelo
+  // número dela. Sem WAME configurada, envioAutomatico fica null e a tela
+  // segue com o link wa.me de sempre. Uma falha aqui nunca desfaz o giftback
+  // já registrado — a tela mostra o erro e oferece o link como alternativa.
+  let envioAutomatico = null;
+  try {
+    envioAutomatico = await wame.enviarTexto({
+      empresaId, telefone: cliente.telefone, texto: mensagem, origem: "giftback", envioGiftbackId: envio.id,
+    });
+  } catch (err) {
+    console.error("[wame] erro inesperado no envio automático do giftback:", err.message);
+    envioAutomatico = { enviado: false, erro: "Não foi possível enviar automaticamente pelo WhatsApp." };
+  }
+  return { envio, mensagem, link: linkWhatsapp, envioAutomatico };
 }
 
 module.exports = { enviarGiftback };

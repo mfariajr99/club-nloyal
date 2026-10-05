@@ -1,7 +1,7 @@
 const express = require("express");
 const db = require("../db");
 const { requireAuth } = require("../auth");
-const { mapCampanhaIndicacao, mapIndicacao } = require("../mappers");
+const { mapCampanhaIndicacao, mapIndicacao, mapIndicado } = require("../mappers");
 const { enviarIndicacao } = require("../enviarIndicacao");
 
 const router = express.Router();
@@ -94,40 +94,72 @@ router.get("/indicados", async (req, res) => {
   );
 });
 
-// Resgate Indicações: indicadores que já bateram a meta e ainda não
-// resgataram o prêmio — mesmo princípio do "Venda gerada" do Giftback.
-router.get("/resgataveis", async (req, res) => {
+// Acompanhamento de indicadores: TODO indicador que já confirmou
+// participação na campanha (ativou o link), com o progresso de amigos
+// indicados confirmados até a meta e se o prêmio dele já foi resgatado.
+// Substitui o antigo /resgataveis (que só trazia quem já tinha batido a
+// meta): agora também aparece quem ainda está "aguardando retorno" de
+// indicações, pra dar mais clareza do estágio de cada indicador na tela
+// "Resgate Indicações". LEFT JOIN em indicados (em vez de INNER JOIN) é o
+// que permite um indicador aparecer aqui mesmo com 0 amigos confirmados
+// ainda, contanto que ele mesmo já tenha confirmado participação.
+router.get("/indicadores", async (req, res) => {
   const result = await db.query(
-    `SELECT i.id AS indicacao_id, i.campanha_id, i.cliente_indicador_id,
+    `SELECT i.id AS indicacao_id, i.campanha_id, i.cliente_indicador_id, i.codigo,
+            i.indicador_confirmado_em,
             ci.titulo AS campanha_titulo, ci.meta_indicacoes, ci.premio_indicador,
             c.nome AS indicador_nome, c.telefone_whatsapp AS indicador_telefone,
             COUNT(ind.id) AS total_confirmados,
-            MAX(ind.data_confirmacao) AS ultima_confirmacao
+            MAX(ind.data_confirmacao) AS ultima_confirmacao,
+            (r.id IS NOT NULL) AS resgatado
      FROM indicacoes i
      JOIN campanhas_indicacao ci ON ci.id = i.campanha_id
      JOIN clientes c ON c.id = i.cliente_indicador_id
-     JOIN indicados ind ON ind.indicacao_id = i.id
+     LEFT JOIN indicados ind ON ind.indicacao_id = i.id
+     LEFT JOIN resgates_indicacao r ON r.indicacao_id = i.id
      WHERE i.empresa_id = $1
-       AND NOT EXISTS (SELECT 1 FROM resgates_indicacao r WHERE r.indicacao_id = i.id)
-     GROUP BY i.id, ci.titulo, ci.meta_indicacoes, ci.premio_indicador, c.nome, c.telefone_whatsapp
-     HAVING COUNT(ind.id) >= ci.meta_indicacoes
-     ORDER BY MAX(ind.data_confirmacao) DESC`,
+       AND i.indicador_confirmado_em IS NOT NULL
+     GROUP BY i.id, i.codigo, i.indicador_confirmado_em, ci.titulo, ci.meta_indicacoes,
+              ci.premio_indicador, c.nome, c.telefone_whatsapp, r.id
+     ORDER BY i.indicador_confirmado_em DESC`,
     [req.usuario.empresaId]
   );
   res.json(
-    result.rows.map((r) => ({
-      indicacaoId: r.indicacao_id,
-      campanhaId: r.campanha_id,
-      campanhaTitulo: r.campanha_titulo,
-      metaIndicacoes: r.meta_indicacoes,
-      premioIndicador: r.premio_indicador,
-      indicadorId: r.cliente_indicador_id,
-      indicadorNome: r.indicador_nome,
-      indicadorTelefone: r.indicador_telefone,
-      totalConfirmados: Number(r.total_confirmados),
-      ultimaConfirmacao: r.ultima_confirmacao,
-    }))
+    result.rows.map((r) => {
+      const totalConfirmados = Number(r.total_confirmados);
+      return {
+        indicacaoId: r.indicacao_id,
+        campanhaId: r.campanha_id,
+        campanhaTitulo: r.campanha_titulo,
+        metaIndicacoes: r.meta_indicacoes,
+        premioIndicador: r.premio_indicador,
+        indicadorId: r.cliente_indicador_id,
+        indicadorNome: r.indicador_nome,
+        indicadorTelefone: r.indicador_telefone,
+        codigo: r.codigo || null,
+        totalConfirmados,
+        metaAtingida: totalConfirmados >= r.meta_indicacoes,
+        resgatado: !!r.resgatado,
+        indicadorConfirmadoEm: r.indicador_confirmado_em,
+        ultimaConfirmacao: r.ultima_confirmacao,
+      };
+    })
   );
+});
+
+// Drill-down de UM indicador: os amigos indicados por ele que já
+// confirmaram — usado no "X / Y" clicável da tela "Resgate Indicações".
+router.get("/:indicacaoId/indicados", async (req, res) => {
+  const indicacaoRes = await db.query("SELECT id FROM indicacoes WHERE id = $1 AND empresa_id = $2", [
+    req.params.indicacaoId,
+    req.usuario.empresaId,
+  ]);
+  if (!indicacaoRes.rows[0]) return res.status(404).json({ erro: "Indicação não encontrada." });
+  const result = await db.query(
+    "SELECT * FROM indicados WHERE indicacao_id = $1 ORDER BY data_confirmacao DESC",
+    [req.params.indicacaoId]
+  );
+  res.json(result.rows.map(mapIndicado));
 });
 
 router.post("/resgates", async (req, res) => {
